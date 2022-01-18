@@ -292,17 +292,18 @@ class Explainer():
             if self.reducer_type == 'PCA':
                 minmax = True
             x,h = self.utils.img_filter(x,h,threshold=threshold,background = background,smooth = smooth,minmax = minmax)
+            # what is this doing? all h are the same in the experiment
             
             nsize = self.utils.img_size.copy()
             nsize[1] = nsize[1]* self.featureimgtopk
             nimg = np.zeros(nsize)
             nh = np.zeros(nsize[:-1])
             for i in range(x.shape[0]):
-                timg = self.utils.deprocessing(x[i])
-                if timg.max()>1:
+                timg = self.utils.deprocessing(x[i]) # return same image in a standard format (i.e. channel last) plus some other modifications that seem not active
+                if timg.max()>1: # upper limit to 1. TODO: change that to 127 for velocity
                     timg = timg / 255.0
                     timg = abs(timg)
-                timg = np.clip(timg,0,1)
+                timg = np.clip(timg,0,1) # clip if to be sure, it should not do anything
                 nimg[:,i*self.utils.img_size[1]:(i+1)*self.utils.img_size[1],:] = timg
                 nh[:,i*self.utils.img_size[1]:(i+1)*self.utils.img_size[1]] = h[i]
             fig = self.utils.contour_img(nimg,nh)

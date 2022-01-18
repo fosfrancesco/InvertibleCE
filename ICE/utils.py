@@ -215,7 +215,7 @@ class img_utils:
             x = np.squeeze(x)
             ax.imshow(x, cmap="Greys")
         elif x.shape[-1] == 2:
-            x = np.concatenate([x, np.zeros(x.shape[0], x.shape[1], 1)], axis=2)
+            x = np.concatenate([x, np.zeros((x.shape[0], x.shape[1], 1))], axis=2)
             ax.imshow(x)
         else:
             ax.imshow(x)
