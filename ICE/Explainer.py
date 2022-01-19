@@ -292,7 +292,6 @@ class Explainer():
             if self.reducer_type == 'PCA':
                 minmax = True
             x,h = self.utils.img_filter(x,h,threshold=threshold,background = background,smooth = smooth,minmax = minmax)
-            # what is this doing? all h are the same in the experiment
             
             nsize = self.utils.img_size.copy()
             nsize[1] = nsize[1]* self.featureimgtopk
@@ -300,10 +299,13 @@ class Explainer():
             nh = np.zeros(nsize[:-1])
             for i in range(x.shape[0]):
                 timg = self.utils.deprocessing(x[i]) # return same image in a standard format (i.e. channel last) plus some other modifications that seem not active
-                if timg.max()>1: # upper limit to 1. TODO: change that to 127 for velocity
-                    timg = timg / 255.0
+                if timg.max()>127: # not the best way to distinguish between images and MIDI, but it should work if not very unlucky
+                    timg = timg / 127.0 # THIS was modified to run on MIDI velocity
                     timg = abs(timg)
-                timg = np.clip(timg,0,1) # clip if to be sure, it should not do anything
+                else:
+                    timg = timg / 255.0 # Original for images
+                    timg = abs(timg)
+                timg = np.clip(timg,0,1) # clip to be sure, it should not do anything
                 nimg[:,i*self.utils.img_size[1]:(i+1)*self.utils.img_size[1],:] = timg
                 nh[:,i*self.utils.img_size[1]:(i+1)*self.utils.img_size[1]] = h[i]
             fig = self.utils.contour_img(nimg,nh)
