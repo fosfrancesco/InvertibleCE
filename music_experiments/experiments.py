@@ -34,7 +34,14 @@ from config import concepts_path, splits_root
 
 concepts_path = os.path.join(concepts_path, "npy")
 
-device = "cuda:1"  ## TODO: import or configure (also used in trainer)
+device = "cuda:3"  ## TODO: import or configure (also used in trainer)
+
+
+seed = 10
+torch.manual_seed(seed)
+torch.cuda.manual_seed(seed)
+np.random.seed(seed)
+torch.backends.cudnn.deterministic = True
 
 
 model_loc = (
@@ -53,7 +60,7 @@ model.load_state_dict(state_dict)
 model.to(device)
 model.eval()
 
-batch_size = 40
+batch_size = 10
 
 
 train_dataset = MIDIDataset(
@@ -61,7 +68,7 @@ train_dataset = MIDIDataset(
     txt_file=os.path.join(splits_root, "train.txt"),
     classes=13,
     omit=None,  # str
-    seg_num=5,
+    seg_num=3,
     age=False,
     transform=None,
     transpose_rng=None,
@@ -77,8 +84,8 @@ import shutil
 
 target_classes = [6, 12]
 classes_names = [str(i) for i in target_classes]
-layer_name = "layer4"
-n_components = 3
+layer_name = "layer1"
+n_components = 6
 title = (
     "ConcComp_{}_{}_[".format(layer_name, n_components) + "_".join(classes_names) + "]"
 )
@@ -128,14 +135,15 @@ class XSubset(torch.utils.data.Dataset):
 
 Y = np.array(train_dataset.y)
 loaders = []
+datasets = []
 for target in target_classes:
-    tdataset = XSubset(train_dataset, Y[Y == target])
+    tdataset = XSubset(train_dataset, np.nonzero(Y == target)[0])
+    datasets.append(tdataset)
     loaders.append(
         torch.utils.data.DataLoader(
             tdataset, batch_size=batch_size, shuffle=True, num_workers=2
         )
     )
-
 
 print(
     "-------------------------------------------------------------------------------------------"

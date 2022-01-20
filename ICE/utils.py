@@ -168,7 +168,7 @@ class img_utils:
         plt.show()
 
     def img_filter(
-        self, x, h, threshold=0.5, background=0.2, smooth=True, minmax=False
+        self, x, h, threshold=0.5, background=0.1, smooth=False, minmax=False
     ):
         x = x.copy()
         h = h.copy()
@@ -189,21 +189,25 @@ class img_utils:
         h_mask = np.repeat(h, self.nchannels).reshape(list(h.shape) + [-1])
         if self.img_format == "channels_first":
             h_mask = np.transpose(h_mask, (0, 3, 1, 2))
-        x = x * h_mask
+        x = x * h_mask  # Commented to show for MIDI
 
         h = h - h.min()
         h = h / (h.max() + EPSILON)
 
         return x, h
 
-    def contour_img(self, x, h, dpi=100):
+    def contour_img(self, x, h, dpi=400):
+        image_size_multiplier = 2  # added by francesco. Set 1 for the original image
         dpi = float(dpi)
         size = x.shape
         if x.max() > 1:
             x = x / x.max()
-        # fig = plt.figure(figsize=(size[1]/dpi,size[0]/dpi),dpi=dpi)
         fig = plt.figure(
-            figsize=(size[1] / dpi, size[0] / dpi), dpi=dpi * SIZE[0] / size[0]
+            figsize=(
+                image_size_multiplier * size[1] / dpi,
+                image_size_multiplier * size[0] / dpi,
+            ),
+            dpi=image_size_multiplier * dpi * SIZE[0] / size[0],
         )
         ax = plt.Axes(fig, [0.0, 0.0, 1.0, 1.0])
         ax.set_axis_off()
@@ -215,11 +219,12 @@ class img_utils:
             x = np.squeeze(x)
             ax.imshow(x, cmap="Greys")
         elif x.shape[-1] == 2:
-            x = np.concatenate([x, np.zeros((x.shape[0], x.shape[1], 1))], axis=2)
+            # x = np.concatenate([x, np.zeros((x.shape[0], x.shape[1], 1))], axis=2)
+            x = np.squeeze(x[:, :, 1])  # display notes in full lenght
             ax.imshow(x)
         else:
             ax.imshow(x)
-        ax.contour(X, Y, h, colors="r")
+        ax.contour(X, Y, h, colors="r", linewidths=0.2)
         return fig
 
     def res_ana(
