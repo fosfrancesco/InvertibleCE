@@ -34,7 +34,7 @@ from config import concepts_path, splits_root
 
 concepts_path = os.path.join(concepts_path, "npy")
 
-device = "cuda:3"  ## TODO: import or configure (also used in trainer)
+device = "cuda:0"  ## TODO: import or configure (also used in trainer)
 
 
 seed = 10
@@ -82,34 +82,6 @@ import ICE.utils
 import shutil
 
 
-target_classes = [6, 12]
-classes_names = [str(i) for i in target_classes]
-layer_name = "layer1"
-n_components = 6
-title = (
-    "ConcComp_{}_{}_[".format(layer_name, n_components) + "_".join(classes_names) + "]"
-)
-
-
-print("title:{}".format(title))
-print("target_classes:{}".format(target_classes))
-print("classes_names:{}".format(classes_names))
-print("n_components:{}".format(n_components))
-print("layer_name:{}".format(layer_name))
-
-
-model = model.cuda()
-model.eval()
-wm = ICE.ModelWrapper.PytorchModelWrapper(
-    model,
-    batch_size=batch_size,
-    predict_target=target_classes,
-    input_size=[2, 400, 128],
-    input_channel_first=True,
-    model_channel_first=True,
-)
-
-
 # a solution to have datasets only for a specific class and to return only X instead of the dictionary with X and Y
 class XSubset(torch.utils.data.Dataset):
     r"""
@@ -133,6 +105,10 @@ class XSubset(torch.utils.data.Dataset):
         return len(self.indices)
 
 
+target_classes = [6, 12]
+classes_names = [str(i) for i in target_classes]
+n_components = 2
+
 Y = np.array(train_dataset.y)
 loaders = []
 datasets = []
@@ -149,26 +125,49 @@ print(
     "-------------------------------------------------------------------------------------------"
 )
 
-try:
-    shutil.rmtree("Explainers/" + title)
-except:
-    pass
-# create an Explainer
-Exp = ICE.Explainer.Explainer(
-    title=title,
-    layer_name=layer_name,
-    class_names=classes_names,
-    utils=ICE.utils.img_utils(
-        img_size=(400, 128), nchannels=2, img_format="channels_first"
-    ),
-    n_components=n_components,
-    reducer_type="NMF",
+wm = ICE.ModelWrapper.PytorchModelWrapper(
+    model,
+    batch_size=batch_size,
+    predict_target=target_classes,
+    input_size=[2, 400, 128],
+    input_channel_first=True,
+    model_channel_first=True,
 )
-# train reducer based on target classes
-Exp.train_model(wm, loaders)
-# generate features
-Exp.generate_features(wm, loaders)
-# generate global explanations
-Exp.global_explanations()
-# save the explainer, use load() to load it with the same title
-Exp.save()
+
+for layer_name in ["layer1", "layer2", "layer3", "layer4"]:
+
+    title = (
+        "ConcComp_{}_{}_[".format(layer_name, n_components)
+        + "_".join(classes_names)
+        + "]"
+    )
+
+    print("title:{}".format(title))
+    print("target_classes:{}".format(target_classes))
+    print("classes_names:{}".format(classes_names))
+    print("n_components:{}".format(n_components))
+    print("layer_name:{}".format(layer_name))
+
+    # try:
+    #     shutil.rmtree("Explainers/" + title)
+    # except:
+    #     pass
+    # create an Explainer
+    Exp = ICE.Explainer.Explainer(
+        title=title,
+        layer_name=layer_name,
+        class_names=classes_names,
+        utils=ICE.utils.img_utils(
+            img_size=(400, 128), nchannels=2, img_format="channels_first"
+        ),
+        n_components=n_components,
+        reducer_type="NMF",
+    )
+    # train reducer based on target classes
+    Exp.train_model(wm, loaders)
+    # generate features
+    Exp.generate_features(wm, loaders)
+    # generate global explanations
+    Exp.global_explanations()
+    # save the explainer, use load() to load it with the same title
+    Exp.save()

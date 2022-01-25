@@ -196,6 +196,35 @@ class img_utils:
 
         return x, h
 
+    def midi_filter(
+        self, x, h, threshold=0.5, background=0.0, smooth=False, minmax=False
+    ):
+        x = x.copy()
+        h = h.copy()
+
+        if minmax:
+            h = h - h.min()
+
+        h = h * (h > 0)
+        for i in range(h.shape[0]):
+            h[i] = h[i] / (h[i].max() + EPSILON)
+
+        h = (h - threshold) * (1 / (1 - threshold))
+
+        # h = h * (h>0)
+
+        h = self.resize_img(h, smooth=smooth)
+        h = (h > 0).astype("float") * (1 - background) + background
+        h_mask = np.repeat(h, self.nchannels).reshape(list(h.shape) + [-1])
+        if self.img_format == "channels_first":
+            h_mask = np.transpose(h_mask, (0, 3, 1, 2))
+        x = x * h_mask  # Commented to show for MIDI
+
+        h = h - h.min()
+        h = h / (h.max() + EPSILON)
+
+        return x, h
+
     def contour_img(self, x, h, dpi=400):
         image_size_multiplier = 2  # added by francesco. Set 1 for the original image
         dpi = float(dpi)
@@ -225,6 +254,7 @@ class img_utils:
         else:
             ax.imshow(x)
         ax.contour(X, Y, h, colors="r", linewidths=0.2)
+
         return fig
 
     def res_ana(

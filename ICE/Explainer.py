@@ -16,10 +16,12 @@ import numpy as np
 import matplotlib.pyplot as plt
 import time
 
+import partitura
+
 
 FONT_SIZE = 30
 # CALC_LIMIT = 3e4
-CALC_LIMIT = 1e8
+CALC_LIMIT = 1e9
 # CALC_LIMIT = 1e9
 TRAIN_LIMIT = 50
 REDUCER_PATH = "reducer/resnet50"
@@ -370,11 +372,59 @@ class Explainer:
                 nh[
                     :, i * self.utils.img_size[1] : (i + 1) * self.utils.img_size[1]
                 ] = h[i]
+            # contour the features
             fig = self.utils.contour_img(nimg, nh)
+            # draw lines between different pianorolls
+            for x_vert in [
+                i * nimg.shape[1] / x.shape[0] for i in range(1, x.shape[0])
+            ]:
+                fig.axes[0].axvline(x_vert, color="white")
             fig.savefig(
                 feature_path / (str(idx) + ".jpg"), bbox_inches="tight", pad_inches=0
             )
             plt.close(fig)
+
+    def _sonify_features(self, threshold=0.5, background=0.0, smooth=True):
+        feature_path = self.exp_location / self.title / "feature_midis"
+        # utils = self.utils
+
+        if not os.path.exists(feature_path):
+            os.mkdir(feature_path)
+
+        # iterate over features
+        for idx in self.features.keys():
+
+            x, h = self.features[idx]
+            # x contains the MIDI for 6 different MIDI files
+            minmax = False
+            if self.reducer_type == "PCA":
+                minmax = True
+            # filter out notes that are not considered
+            x, h = self.utils.midi_filter(
+                x,
+                h,
+                threshold=threshold,
+                background=background,
+                smooth=smooth,
+                minmax=minmax,
+            )
+
+            # iterate over MIDI files for a specific feature
+            for i in range(x.shape[0]):
+                # save midi for x[i]
+                note_array = partitura.utils.pianoroll_to_notearray(
+                    x[i, 1, :, :].T, time_div=20, time_unit="sec"
+                )
+                if len(note_array) > 0:
+                    performed_part = partitura.performance.PerformedPart.from_note_array(
+                        note_array, id=None, part_name=None
+                    )
+                    midifile_path = Path(feature_path, f"feature{idx}-{i}.mid")
+                    partitura.io.exportmidi.save_performance_midi(
+                        performed_part, midifile_path
+                    )
+                else:
+                    print(f"No midi file generated for feature{idx}-{i}")
 
     def global_explanations(self):
         title = self.title
