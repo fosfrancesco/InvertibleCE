@@ -23,21 +23,20 @@ import sklearn.decomposition
 import sklearn.cluster
 
 
-from sklearn.base import BaseEstimator 
+from sklearn.base import BaseEstimator
 
 ALGORITHM_NAMES = {}
 for name in dir(sklearn.decomposition):
     obj = sklearn.decomposition.__getattribute__(name)
     if isinstance(obj, type) and issubclass(obj, BaseEstimator):
-        ALGORITHM_NAMES[name] = 'decomposition'
+        ALGORITHM_NAMES[name] = "decomposition"
 for name in dir(sklearn.cluster):
     obj = sklearn.cluster.__getattribute__(name)
     if isinstance(obj, type) and issubclass(obj, BaseEstimator):
-        ALGORITHM_NAMES[name] = 'cluster'
+        ALGORITHM_NAMES[name] = "cluster"
 
 
 class ChannelDecompositionReducer(object):
-
     def __init__(self, n_components=3, reduction_alg="NMF", **kwargs):
 
         if not isinstance(n_components, int):
@@ -53,14 +52,19 @@ class ChannelDecompositionReducer(object):
             if reduction_alg in algorithm_map:
                 reduction_alg = algorithm_map[reduction_alg]
             else:
-                raise ValueError("Unknown dimensionality reduction method '%s'." % reduction_alg)
-
+                raise ValueError(
+                    "Unknown dimensionality reduction method '%s'." % reduction_alg
+                )
 
         self.n_components = n_components
         self._reducer = reduction_alg(n_components=n_components, **kwargs)
         self._is_fit = False
 
     def _apply_flat(cls, f, acts):
+        """ flat the input matrix A to (something x c), 
+        run the NMF on that to produce (W,H) of shapes (something x c') and (c' x c) ,
+        reshape W according to the initial shape of A, except the last dimension that stays c' as it was in W.
+         """
         orig_shape = acts.shape
         acts_flat = acts.reshape([-1, acts.shape[-1]])
         new_flat = f(acts_flat)
@@ -70,7 +74,7 @@ class ChannelDecompositionReducer(object):
         return new_flat.reshape(shape)
 
     def fit(self, acts):
-        if hasattr(self._reducer,'partial_fit'):
+        if hasattr(self._reducer, "partial_fit"):
             res = self._apply_flat(self._reducer.partial_fit, acts)
         else:
             res = self._apply_flat(self._reducer.fit, acts)
@@ -78,26 +82,29 @@ class ChannelDecompositionReducer(object):
         return res
 
     def fit_transform(self, acts):
+        """Fit a NMF model and return the data tranformed by it.
+        This is a wrapper for the sklearn function that flatten and then recostruct the input matrix."""
+        # acts is the input matrix to factorize.
         res = self._apply_flat(self._reducer.fit_transform, acts)
         self._is_fit = True
         return res
 
     def transform(self, acts):
+        """Return the data tranformed by and already fitted NMF model.
+        This is a wrapper for the sklearn function that flatten and then recostruct the input matrix."""
         res = self._apply_flat(self._reducer.transform, acts)
         return res
 
     def inverse_transform(self, acts):
-        if hasattr(self._reducer,'inverse_transform'):
+        if hasattr(self._reducer, "inverse_transform"):
             res = self._apply_flat(self._reducer.inverse_transform, acts)
         else:
-            res = np.dot(acts,self._reducer.components_)
+            res = np.dot(acts, self._reducer.components_)
         return res
 
 
 class ChannelClusterReducer(object):
-
     def __init__(self, n_components=3, reduction_alg="KMeans", **kwargs):
-
 
         if not isinstance(n_components, int):
             raise ValueError("n_components must be an int, not '%s'." % n_components)
@@ -112,8 +119,9 @@ class ChannelClusterReducer(object):
             if reduction_alg in algorithm_map:
                 reduction_alg = algorithm_map[reduction_alg]
             else:
-                raise ValueError("Unknown dimensionality reduction method '%s'." % reduction_alg)
-
+                raise ValueError(
+                    "Unknown dimensionality reduction method '%s'." % reduction_alg
+                )
 
         self.n_components = n_components
         self._reducer = reduction_alg(n_clusters=n_components, **kwargs)
@@ -132,17 +140,16 @@ class ChannelClusterReducer(object):
         shape = list(orig_shape[:-1]) + [-1]
         new_flat = new_flat.reshape(shape)
 
-
         if new_flat.shape[-1] == 1:
             new_flat = new_flat.reshape(-1)
-            t_flat = np.zeros([new_flat.shape[0],self.n_components])
-            t_flat[np.arange(new_flat.shape[0]),new_flat] = 1
+            t_flat = np.zeros([new_flat.shape[0], self.n_components])
+            t_flat[np.arange(new_flat.shape[0]), new_flat] = 1
             new_flat = t_flat.reshape(shape)
 
         return new_flat
 
     def fit(self, acts):
-        if hasattr(self._reducer,'partial_fit'):
+        if hasattr(self._reducer, "partial_fit"):
             res = self._apply_flat(self._reducer.partial_fit, acts)
         else:
             res = self._apply_flat(self._reducer.fit, acts)
@@ -161,5 +168,5 @@ class ChannelClusterReducer(object):
         return res
 
     def inverse_transform(self, acts):
-        res = np.dot(acts,self._reducer.components_)
+        res = np.dot(acts, self._reducer.components_)
         return res

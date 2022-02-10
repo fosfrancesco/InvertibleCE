@@ -34,6 +34,9 @@ from config import concepts_path, splits_root
 
 concepts_path = os.path.join(concepts_path, "npy")
 
+os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+
 device = "cuda:0"  ## TODO: import or configure (also used in trainer)
 
 
@@ -134,7 +137,8 @@ wm = ICE.ModelWrapper.PytorchModelWrapper(
     model_channel_first=True,
 )
 
-for layer_name in ["layer1", "layer2", "layer3", "layer4"]:
+# for layer_name in ["layer1", "layer2", "layer3", "layer4"]:
+for layer_name in ["layer4"]:
 
     title = (
         "ConcComp_{}_{}_[".format(layer_name, n_components)
@@ -148,10 +152,10 @@ for layer_name in ["layer1", "layer2", "layer3", "layer4"]:
     print("n_components:{}".format(n_components))
     print("layer_name:{}".format(layer_name))
 
-    # try:
-    #     shutil.rmtree("Explainers/" + title)
-    # except:
-    #     pass
+    try:  # delete old files
+        shutil.rmtree("Explainers/" + title)
+    except:
+        pass
     # create an Explainer
     Exp = ICE.Explainer.Explainer(
         title=title,
@@ -169,5 +173,7 @@ for layer_name in ["layer1", "layer2", "layer3", "layer4"]:
     Exp.generate_features(wm, loaders)
     # generate global explanations
     Exp.global_explanations()
+    # generate midi of global explanation
+    Exp._sonify_features()
     # save the explainer, use load() to load it with the same title
     Exp.save()

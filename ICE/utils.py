@@ -10,6 +10,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os
 from skimage.transform import resize
+import partitura
 
 
 # npdir = '/dataset/ILSVRC2012/nparray_train'
@@ -224,6 +225,22 @@ class img_utils:
         h = h / (h.max() + EPSILON)
 
         return x, h
+
+    def pianoroll2midi(self, pianoroll3d, out_path, samples_per_second=20):
+        """Generate a midi file from a pianoroll. 
+        The expected pianoroll shape is (2,128,x)"""
+        if pianoroll3d.max() == 0:
+            raise ValueError(
+                "There should be at least one note played in the pianoroll"
+            )
+
+        note_array = partitura.utils.pianoroll_to_notearray(
+            pianoroll3d[1, :, :], time_div=samples_per_second, time_unit="sec"
+        )
+        performed_part = partitura.performance.PerformedPart.from_note_array(
+            note_array, id=None, part_name=None
+        )
+        partitura.io.exportmidi.save_performance_midi(performed_part, out_path)
 
     def contour_img(self, x, h, dpi=400):
         image_size_multiplier = 2  # added by francesco. Set 1 for the original image
