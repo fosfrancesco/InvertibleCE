@@ -247,6 +247,9 @@ class Explainer:
         return res
 
     def _update_feature_dict(self, x, h, nx, nh, threshold=None):
+        """Concatenate x with nx and h with nh, order them 
+        wrt the average for each piece and take the 5 with highest value.
+        Or just return nx, nh if x (and h) is None"""
 
         if type(x) == type(None):
             return nx, nh
@@ -319,7 +322,8 @@ class Explainer:
 
                 # iterate for the different CAVs
                 for No in featureIdx:
-                    samples, heatmap = features[No]  # None, None at first call
+                    # None, None at first call, used to concatenate features for one CAV in different minibatches and different dataloaders
+                    samples, heatmap = features[No]
                     # take the indices of the first 5 vectors of 5 (i.e. pieces that activates the CAVs most)
                     idx = X_feature[:, No].argsort()[-imgTopk:]
                     # take only the top 5 pieces from the full W matrix
@@ -327,13 +331,15 @@ class Explainer:
                     # take only the top 5 pieces from the input pianorolls matrix
                     nsamples = X[idx, ...]
 
-                    # TODO : keep checking from here
+                    # find top 5 across all minibatches and dataloader
+                    # we are losing the about the target class for the samples
                     samples, heatmap = self._update_feature_dict(
                         samples, heatmap, nsamples, nheatmap
                     )
 
                     features[No] = [samples, heatmap]
 
+                    # TODO : what is inter_dict? When is it used?
                     if inter_dict is not None:
                         for k in inter_dict.keys():
                             vmin = self.feature_distribution["overall"][No][2]
@@ -353,7 +359,7 @@ class Explainer:
                 )
             )
         # create repeat prototypes in case lack of samples
-        # TODO : check what is that
+        # TODO : check what is that. It does not seems to enter here
         for no, (x, h) in features.items():
             idx = h.mean(axis=(1, 2)).argmax()
             for i in range(h.shape[0]):
@@ -374,6 +380,7 @@ class Explainer:
 
         for idx in self.features.keys():
 
+            # get samples and heatmaps
             x, h = self.features[idx]
             # x = self.gen_masked_imgs(
             #     x, h, threshold=threshold, background=background, smooth=smooth
@@ -425,7 +432,7 @@ class Explainer:
             )
             plt.close(fig)
 
-    def _sonify_features(self, threshold=0.5, background=0.0, smooth=True):
+    def _sonify_features(self, threshold=0.5, background=0.01, smooth=True):
         feature_path = self.exp_location / self.title / "feature_midis"
         # utils = self.utils
 
@@ -441,7 +448,7 @@ class Explainer:
             if self.reducer_type == "PCA":
                 minmax = True
             # filter out notes that are not considered
-            x, h = self.utils.midi_filter(
+            x_filt, h = self.utils.midi_filter(
                 x,
                 h,
                 threshold=threshold,
@@ -451,10 +458,14 @@ class Explainer:
             )
 
             # iterate over MIDI files for a specific feature
-            for i in range(x.shape[0]):
+            for i in range(x_filt.shape[0]):
                 # save midi for x[i]
                 midifile_path = Path(feature_path, f"feature{idx}-{i}.mid")
+                midifile_filt_path = Path(feature_path, f"feature{idx}-{i}_filt.mid")
                 try:
+                    self.utils.pianoroll2midi(
+                        np.transpose(x_filt[i], (0, 2, 1)), midifile_filt_path
+                    )
                     self.utils.pianoroll2midi(
                         np.transpose(x[i], (0, 2, 1)), midifile_path
                     )

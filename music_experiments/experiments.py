@@ -110,7 +110,7 @@ class XSubset(torch.utils.data.Dataset):
 
 target_classes = [6, 12]
 classes_names = [str(i) for i in target_classes]
-n_components = 2
+n_components = 7
 
 Y = np.array(train_dataset.y)
 loaders = []
