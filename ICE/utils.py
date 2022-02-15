@@ -226,8 +226,10 @@ class img_utils:
 
         return x, h
 
-    def pianoroll2midi(self, pianoroll3d, out_path, samples_per_second=20):
-        """Generate a midi file from a pianoroll. 
+    def pianoroll2midi(
+        self, pianoroll3d, out_path, samples_per_second=20, piano_range=True
+    ):
+        """Generate a midi file from a pianoroll.
         The expected pianoroll shape is (2,128,x)"""
         if pianoroll3d.max() == 0:
             raise ValueError(

@@ -35,7 +35,7 @@ from config import concepts_path, splits_root
 concepts_path = os.path.join(concepts_path, "npy")
 
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+os.environ["CUDA_VISIBLE_DEVICES"] = "4"
 
 device = "cuda:0"  ## TODO: import or configure (also used in trainer)
 
@@ -108,9 +108,25 @@ class XSubset(torch.utils.data.Dataset):
         return len(self.indices)
 
 
-target_classes = [6, 12]
-classes_names = [str(i) for i in target_classes]
-n_components = 7
+target_composers = [
+    "Alexander Scriabin",
+    "Claude Debussy",
+    "Domenico Scarlatti",
+    "Franz Liszt",
+    "Franz Schubert",
+    "Frédéric Chopin",
+    "Johann Sebastian Bach",
+    "Johannes Brahms",
+    "Joseph Haydn",
+    "Ludwig van Beethoven",
+    "Robert Schumann",
+    "Sergei Rachmaninoff",
+    "Wolfgang Amadeus Mozart",
+]
+
+target_classes = [5, 6]
+classes_names = [target_composers[i] for i in target_classes]
+n_components = 8
 
 Y = np.array(train_dataset.y)
 loaders = []
@@ -175,5 +191,6 @@ for layer_name in ["layer4"]:
     Exp.global_explanations()
     # generate midi of global explanation
     Exp._sonify_features()
+    Exp._sonify_features(contrast=True, unfiltered_midi=True)
     # save the explainer, use load() to load it with the same title
     Exp.save()

@@ -62,6 +62,7 @@ class Explainer:
 
         self.feature_base = []
         self.features = {}
+        self.features_contrast = {}
 
         self.exp_location = Path("Explainers")
 
@@ -97,7 +98,9 @@ class Explainer:
 
             if ChannelReducer.ALGORITHM_NAMES[self.reducer_type] == "decomposition":
                 self.reducer = ChannelReducer.ChannelDecompositionReducer(
-                    n_components=self.n_components, reduction_alg=self.reducer_type
+                    n_components=self.n_components,
+                    reduction_alg=self.reducer_type,
+                    max_iter=1000,
                 )
             else:
                 self.reducer = ChannelReducer.ChannelClusterReducer(
@@ -229,6 +232,7 @@ class Explainer:
     def generate_features(self, model, loaders):
         self._visualize_features(model, loaders)
         self._save_features()
+        self._save_features(contrast=True)
         if self.keep_feature_images == False:
             self.features = {}
         return
@@ -246,9 +250,9 @@ class Explainer:
             res = -abs(res - threshold)
         return res
 
-    def _update_feature_dict(self, x, h, nx, nh, threshold=None):
+    def _update_feature_dict(self, x, h, nx, nh, threshold=None, keep="highest"):
         """Concatenate x with nx and h with nh, order them 
-        wrt the average for each piece and take the 5 with highest value.
+        wrt the average for each piece and take the 5 with highest (or lowest) value.
         Or just return nx, nh if x (and h) is None"""
 
         if type(x) == type(None):
@@ -257,9 +261,16 @@ class Explainer:
             x = np.concatenate([x, nx])
             h = np.concatenate([h, nh])
 
-            nidx = self._feature_filter(h, threshold=threshold).argsort()[
-                -self.featureimgtopk :
-            ]
+            if keep == "highest":
+                nidx = self._feature_filter(h, threshold=threshold).argsort()[
+                    -self.featureimgtopk :
+                ]
+            elif keep == "lowest":
+                nidx = self._feature_filter(h, threshold=threshold).argsort()[
+                    : self.featureimgtopk
+                ]
+            else:
+                raise ValueError("keep can be only 'highest' or 'lowest'")
             x = x[nidx, ...]
             h = h[nidx, ...]
             return x, h
@@ -298,8 +309,10 @@ class Explainer:
         print(featureIdx)
         # initialize the features
         features = {}
+        features_contrast = {}
         for No in featureIdx:
             features[No] = [None, None]
+            features_contrast[No] = [None, None]
         # TODO: what is inter_dict used for?
         if inter_dict is not None:
             for k in inter_dict.keys():
@@ -323,24 +336,38 @@ class Explainer:
                 # iterate for the different CAVs
                 for No in featureIdx:
                     # None, None at first call, used to concatenate features for one CAV in different minibatches and different dataloaders
-                    samples, heatmap = features[No]
-                    # take the indices of the first 5 vectors of 5 (i.e. pieces that activates the CAVs most)
-                    idx = X_feature[:, No].argsort()[-imgTopk:]
-                    # take only the top 5 pieces from the full W matrix
-                    nheatmap = featureMaps[idx, :, :, No]
-                    # take only the top 5 pieces from the input pianorolls matrix
-                    nsamples = X[idx, ...]
+                    samples_top, heatmap_top = features[No]
+                    samples_contrast, heatmap_contrast = features_contrast[No]
+                    # take the indices of the last 5 vectors (i.e. pieces that activates the CAVs most)
+                    idx_most = X_feature[:, No].argsort()[-imgTopk:]
+                    # take the indices of the first 5 vectors (i.e. pieces that activates the CAVs less)
+                    idx_less = X_feature[:, No].argsort()[:imgTopk]
+                    # take only the top/bottom 5 pieces from the full W matrix
+                    nheatmap_most = featureMaps[idx_most, :, :, No]
+                    nheatmap_less = featureMaps[idx_less, :, :, No]
+                    # take the top/bottom 5 pieces from the input pianorolls matrix
+                    nsamples_most = X[idx_most, ...]
+                    nsamples_less = X[idx_less, ...]
 
-                    # find top 5 across all minibatches and dataloader
+                    # find top/bottom 5 across all minibatches and dataloader
                     # we are losing the about the target class for the samples
-                    samples, heatmap = self._update_feature_dict(
-                        samples, heatmap, nsamples, nheatmap
+                    samples_top, heatmap_top = self._update_feature_dict(
+                        samples_top, heatmap_top, nsamples_most, nheatmap_most
+                    )
+                    samples_contrast, heatmap_contrast = self._update_feature_dict(
+                        samples_contrast,
+                        heatmap_contrast,
+                        nsamples_less,
+                        nheatmap_less,
+                        keep="lowest",
                     )
 
-                    features[No] = [samples, heatmap]
+                    features[No] = [samples_top, heatmap_top]
+                    features_contrast[No] = [samples_contrast, heatmap_contrast]
 
                     # TODO : what is inter_dict? When is it used?
                     if inter_dict is not None:
+                        print("WARNING: interdict is doing something")
                         for k in inter_dict.keys():
                             vmin = self.feature_distribution["overall"][No][2]
                             vmax = self.feature_distribution["overall"][No][3]
@@ -364,24 +391,35 @@ class Explainer:
             idx = h.mean(axis=(1, 2)).argmax()
             for i in range(h.shape[0]):
                 if h[i].max() == 0:
+                    print("WARNING: creating repeat prototype")
                     x[i] = x[idx]
                     h[i] = h[idx]
 
         self.features.update(features)
+        self.features_contrast.update(features_contrast)
         self.save()
         return inter_dict
 
-    def _save_features(self, threshold=0.5, background=0.2, smooth=True):
-        feature_path = self.exp_location / self.title / "feature_imgs"
-        # utils = self.utils
+    def _save_features(
+        self, threshold=0.5, background=0.2, smooth=True, contrast=False
+    ):
+        if not contrast:
+            feature_path = self.exp_location / self.title / "feature_imgs"
+        else:
+            feature_path = self.exp_location / self.title / "feature_contrast_imgs"
 
         if not os.path.exists(feature_path):
             os.mkdir(feature_path)
 
-        for idx in self.features.keys():
+        if not contrast:
+            features = self.features
+        else:
+            features = self.features_contrast
+
+        for idx in features.keys():
 
             # get samples and heatmaps
-            x, h = self.features[idx]
+            x, h = features[idx]
             # x = self.gen_masked_imgs(
             #     x, h, threshold=threshold, background=background, smooth=smooth
             # )
@@ -432,17 +470,28 @@ class Explainer:
             )
             plt.close(fig)
 
-    def _sonify_features(self, threshold=0.5, background=0.01, smooth=True):
-        feature_path = self.exp_location / self.title / "feature_midis"
+    def _sonify_features(
+        self,
+        threshold=0.5,
+        background=0.01,
+        smooth=True,
+        unfiltered_midi=False,
+        contrast=False,
+    ):
+        if not contrast:
+            feature_path = self.exp_location / self.title / "feature_midis"
+            features = self.features
+        else:
+            feature_path = self.exp_location / self.title / "feature_contrast_midis"
+            features = self.features_contrast
         # utils = self.utils
 
         if not os.path.exists(feature_path):
             os.mkdir(feature_path)
 
         # iterate over features
-        for idx in self.features.keys():
-
-            x, h = self.features[idx]
+        for idx in features.keys():
+            x, h = features[idx]
             # x contains the MIDI for 6 different MIDI files
             minmax = False
             if self.reducer_type == "PCA":
@@ -460,15 +509,16 @@ class Explainer:
             # iterate over MIDI files for a specific feature
             for i in range(x_filt.shape[0]):
                 # save midi for x[i]
-                midifile_path = Path(feature_path, f"feature{idx}-{i}.mid")
                 midifile_filt_path = Path(feature_path, f"feature{idx}-{i}_filt.mid")
                 try:
                     self.utils.pianoroll2midi(
                         np.transpose(x_filt[i], (0, 2, 1)), midifile_filt_path
                     )
-                    self.utils.pianoroll2midi(
-                        np.transpose(x[i], (0, 2, 1)), midifile_path
-                    )
+                    if unfiltered_midi:
+                        midifile_path = Path(feature_path, f"feature{idx}-{i}.mid")
+                        self.utils.pianoroll2midi(
+                            np.transpose(x[i], (0, 2, 1)), midifile_path
+                        )
                 except ValueError:
                     print(f"No midi file generated for feature{idx}-{i}")
 
