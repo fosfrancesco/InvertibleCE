@@ -303,3 +303,11 @@ class img_utils:
             ana.append(np.array([C1, C2, C, res]))
         return [np.array(ana), reducer]
 
+
+def find_contrastive_cavs(list_of_concept_sensitivity, diff_threshold=20):
+    for i, concept_scores in enumerate(list_of_concept_sensitivity):
+        if (max(concept_scores) - min(concept_scores) > diff_threshold) and (
+            min(concept_scores) < 0 and max(concept_scores) > 0
+        ):
+            print(f"Promising CAV {i}")
+

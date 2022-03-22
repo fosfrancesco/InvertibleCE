@@ -17,6 +17,7 @@ import matplotlib.pyplot as plt
 import time
 
 
+
 FONT_SIZE = 30
 # CALC_LIMIT = 3e4
 CALC_LIMIT = 1e9
@@ -41,6 +42,7 @@ class Explainer:
         featuretopk=20,
         featureimgtopk=5,
         epsilon=1e-4,
+        nmf_initialization="nndsvda",
     ):
         self.title = title
         self.layer_name = layer_name
@@ -54,6 +56,7 @@ class Explainer:
         self.featureimgtopk = featureimgtopk  # number of images for a feature
         self.n_components = n_components
         self.epsilon = epsilon
+        self.nmf_initialization = nmf_initialization
 
         self.utils = utils
 
@@ -100,8 +103,14 @@ class Explainer:
                 self.reducer = ChannelReducer.ChannelDecompositionReducer(
                     n_components=self.n_components,
                     reduction_alg=self.reducer_type,
-                    max_iter=1000,
+                    max_iter=10000,
+                    # nndsvda better when sparsity is not desired
+                    # nndsvd better fpr sparsity
+                    init=self.nmf_initialization,
                 )
+                print("Running NMF with initialization", self.nmf_initialization)
+            elif ChannelReducer.ALGORITHM_NAMES[self.reducer_type] == "3d_decomposition":
+                self.reducer = 
             else:
                 self.reducer = ChannelReducer.ChannelClusterReducer(
                     n_components=self.n_components, reduction_alg=self.reducer_type
@@ -111,7 +120,7 @@ class Explainer:
         for loader in loaders:
             # save all activations of the output of the target layer for the input composer dataset.
             X_features.append(model.get_feature(loader, self.layer_name))
-        print("1/5 Featuer maps gathered.")
+        print("1/5 Feature maps gathered.")
 
         if not self.reducer._is_fit:
             # concatenate the activations corresponding to the different composers
@@ -228,6 +237,10 @@ class Explainer:
         # print the weights
         for i in range(self.n_components):
             print(f"Weights for CAV{i} (for target classes) : {self.test_weight[i,:]} ")
+        # find contrastive CAVs and print them
+        find_contrastive_cavs(
+            [self.test_weight[i, :] for i in range(self.test_weight.shape[0])]
+        )
 
     def generate_features(self, model, loaders):
         self._visualize_features(model, loaders)
@@ -604,8 +617,9 @@ class Explainer:
 
         target_classes = list(range(self.class_nos))
         w = self.test_weight
-
+        # get the unnormalized probability over the output classes
         pred = model.predict(x)[0][target_classes]
+        print("Unnormalized prediction probabilities for the current example:", pred)
 
         fpath = self.exp_location / self.title / "explanations"
 
@@ -622,9 +636,10 @@ class Explainer:
             if not os.path.exists(fpath):
                 os.mkdir(fpath)
             else:
-                print("Folder exists")
-                return
-        else:
+                print("Folder exists, deleting its content")
+                for file in Path(fpath).iterdir():
+                    file.unlink()
+        else:  # if no name is provided, just create a new folder
             count = 0
             while os.path.exists(fpath / str(count)):
                 count += 1
@@ -633,10 +648,12 @@ class Explainer:
             name = str(count)
 
         if self.reducer is not None:
+            # produce the feature map for the input
             h = self.reducer.transform(model.get_feature(x, self.layer_name))[0]
         else:
             h = model.get_feature(x, self.layer_name)[0]
 
+        # this next part is only useful if featuretopk was limited
         feature_idx = []
         for cidx in target_classes:
             tw = w[:, cidx]
@@ -650,6 +667,7 @@ class Explainer:
             if self.reducer_type == "PCA":
                 minmax = True
 
+            # highlight the part of the image according to the CAV k
             x1, h1 = utils.img_filter(
                 x,
                 np.array([h[:, :, k]]),
@@ -657,14 +675,16 @@ class Explainer:
                 minmax=minmax,
                 smooth=True,
             )
+            # transpose to channel as last dimension
             x1 = utils.deprocessing(x1)
-            x1 = x1 / x1.max()
-            x1 = abs(x1)
+            x1 = x1 / x1.max()  # normalize
+            x1 = abs(x1)  # this should do nothing
             fig = utils.contour_img(x1[0], h1[0])
             fig.savefig(fpath / ("feature_{}.jpg".format(k)))
             plt.close()
 
         fpath = fpath.absolute()
+        # path of the already produced images of midis max activating cavs
         gpath = self.exp_location.absolute() / self.title / "feature_imgs"
 
         def node_string(fidx, score, weight):
@@ -689,6 +709,7 @@ class Explainer:
             nodestr += "</table>  \n"
             return nodestr
 
+        # average values to find out how much a certain feature is activated in the example
         s = h.mean(axis=(0, 1))
         for cidx in target_classes:
             tw = w[:, cidx]
@@ -707,13 +728,15 @@ class Explainer:
                 resstr += "</td></tr>\n"
 
             if with_total:
-                resstr += '<tr><td><FONT POINT-SIZE="{}"> Total Conrtibution: {:.3f}, Prediction: {:.3f}</FONT></td></tr> \n'.format(
+                resstr += '<tr><td><FONT POINT-SIZE="{}"> Total Contribution: {:.3f}, Prediction: {:.3f}</FONT></td></tr> \n'.format(
                     font, total, pred[cidx]
                 )
             resstr += "</table> \n >];\n"
             resstr += "}"
 
             graph = pydotplus.graph_from_dot_data(resstr)
+            # why saving in 2 places?
+
             graph.write_jpg(str(fpath / ("explanation_{}.jpg".format(cidx))))
-            graph.write_jpg(str(afpath / ("{}_{}.jpg".format(name, cidx))))
+            # graph.write_jpg(str(afpath / ("{}_{}.jpg".format(name, cidx))))
 

@@ -25,6 +25,8 @@ import sklearn.cluster
 
 from sklearn.base import BaseEstimator
 
+from tensorly.decomposition import Tucker_NN_HALS
+
 ALGORITHM_NAMES = {}
 for name in dir(sklearn.decomposition):
     obj = sklearn.decomposition.__getattribute__(name)
@@ -34,6 +36,8 @@ for name in dir(sklearn.cluster):
     obj = sklearn.cluster.__getattribute__(name)
     if isinstance(obj, type) and issubclass(obj, BaseEstimator):
         ALGORITHM_NAMES[name] = "cluster"
+# add tucker decomposition
+ALGORITHM_NAMES["tucker"] = "3d_decomposition"
 
 
 class ChannelDecompositionReducer(object):
@@ -169,4 +173,55 @@ class ChannelClusterReducer(object):
 
     def inverse_transform(self, acts):
         res = np.dot(acts, self._reducer.components_)
+        return res
+
+
+class Channel3dDecompositionReducer(object):
+    def __init__(self, n_components=(3, 4, 5), reduction_alg="tucker", **kwargs):
+
+        self.n_components = n_components
+        self._reducer = Tucker_NN_HALS(rank=n_components, n_iter_max=100)
+        self._is_fit = False
+
+    def _apply_flat(cls, f, acts):
+        """ flat the input matrix A to (n x (h x w) x c), 
+        run the transformation and reshape W according to the initial shape of A.
+         """
+        orig_shape = acts.shape
+        acts_flat = acts.reshape(
+            [orig_shape[0], orig_shape[1] * orig_shape[2], orig_shape[3]]
+        )
+        new_flat = f(acts_flat)
+        # if not isinstance(new_flat, np.ndarray):
+        #     return new_flat
+        shape = list(orig_shape[:-1]) + [-1]
+        return new_flat.reshape(shape)
+
+    def fit(self, acts):
+        if hasattr(self._reducer, "partial_fit"):
+            res = self._apply_flat(self._reducer.partial_fit, acts)
+        else:
+            res = self._apply_flat(self._reducer.fit, acts)
+        self._is_fit = True
+        return res
+
+    def fit_transform(self, acts):
+        """Fit a NMF model and return the data tranformed by it.
+        This is a wrapper for the sklearn function that flatten and then recostruct the input matrix."""
+        # acts is the input matrix to factorize.
+        res = self._apply_flat(self._reducer.fit_transform, acts)
+        self._is_fit = True
+        return res
+
+    def transform(self, acts):
+        """Return the data tranformed by and already fitted NMF model.
+        This is a wrapper for the sklearn function that flatten and then recostruct the input matrix."""
+        res = self._apply_flat(self._reducer.transform, acts)
+        return res
+
+    def inverse_transform(self, acts):
+        if hasattr(self._reducer, "inverse_transform"):
+            res = self._apply_flat(self._reducer.inverse_transform, acts)
+        else:
+            res = np.dot(acts, self._reducer.components_)
         return res
