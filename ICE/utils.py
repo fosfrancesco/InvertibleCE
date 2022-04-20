@@ -11,10 +11,8 @@ import matplotlib.pyplot as plt
 import os
 from skimage.transform import resize
 import partitura
+import tensorly as tl
 
-
-# npdir = '/dataset/ILSVRC2012/nparray_train'
-# imdir = '/dataset/ILSVRC2012/ILSVRC2012_img_train'
 
 mean = [103.939, 116.779, 123.68]
 SIZE = [224, 224]
@@ -304,7 +302,7 @@ class img_utils:
         return [np.array(ana), reducer]
 
 
-def find_contrastive_cavs(list_of_concept_sensitivity, diff_threshold=20):
+def find_contrastive_cavs(list_of_concept_sensitivity, diff_threshold=0):
     for i, concept_scores in enumerate(list_of_concept_sensitivity):
         if (max(concept_scores) - min(concept_scores) > diff_threshold) and (
             min(concept_scores) < 0 and max(concept_scores) > 0

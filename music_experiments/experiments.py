@@ -35,7 +35,7 @@ from config import concepts_path, splits_root
 concepts_path = os.path.join(concepts_path, "npy")
 
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-os.environ["CUDA_VISIBLE_DEVICES"] = "4"
+os.environ["CUDA_VISIBLE_DEVICES"] = "3"
 
 device = "cuda:0"  ## TODO: import or configure (also used in trainer)
 
@@ -48,9 +48,9 @@ torch.backends.cudnn.deterministic = True
 
 
 model_loc = (
-    "/share/cp/projects/concept_composers/experiments/kim2020/training/2112120930/model"
+    "/share/cp/projects/concept_composers/experiments/kim2020/training/2202180920/model"
 )
-model_name = "resnet50_valloss_1.6795074939727783_acc_0.870350090595109.pt"
+model_name = "resnet50_valloss_1.3208494186401367_acc_0.9237896919964558.pt"
 
 model = resnet50(in_channels=2, num_classes=13)
 checkpoint = torch.load(os.path.join(model_loc, model_name), map_location=device)
@@ -126,7 +126,8 @@ target_composers = [
 
 target_classes = [5, 6]
 classes_names = [target_composers[i] for i in target_classes]
-n_components = 8
+n_components = 20
+layer_name = "layer4"
 
 Y = np.array(train_dataset.y)
 loaders = []
@@ -148,16 +149,16 @@ wm = ICE.ModelWrapper.PytorchModelWrapper(
     model,
     batch_size=batch_size,
     predict_target=target_classes,
-    input_size=[2, 400, 128],
+    input_size=[2, 400, 88],
     input_channel_first=True,
     model_channel_first=True,
 )
 
 # for layer_name in ["layer1", "layer2", "layer3", "layer4"]:
-for layer_name in ["layer4"]:
+for nmf_init in ["nndsvda", "nndsvd"]:
 
     title = (
-        "ConcComp_{}_{}_[".format(layer_name, n_components)
+        "ConcComp_{}_{}_{}[".format(layer_name, n_components, nmf_init)
         + "_".join(classes_names)
         + "]"
     )
@@ -178,10 +179,11 @@ for layer_name in ["layer4"]:
         layer_name=layer_name,
         class_names=classes_names,
         utils=ICE.utils.img_utils(
-            img_size=(400, 128), nchannels=2, img_format="channels_first"
+            img_size=(400, 88), nchannels=2, img_format="channels_first"
         ),
         n_components=n_components,
         reducer_type="NMF",
+        nmf_initialization=nmf_init,
     )
     # train reducer based on target classes
     Exp.train_model(wm, loaders)

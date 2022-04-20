@@ -17,7 +17,6 @@ import matplotlib.pyplot as plt
 import time
 
 
-
 FONT_SIZE = 30
 # CALC_LIMIT = 3e4
 CALC_LIMIT = 1e9
@@ -43,6 +42,8 @@ class Explainer:
         featureimgtopk=5,
         epsilon=1e-4,
         nmf_initialization="nndsvda",
+        dimension=None,
+        iter_max=1000,
     ):
         self.title = title
         self.layer_name = layer_name
@@ -57,6 +58,8 @@ class Explainer:
         self.n_components = n_components
         self.epsilon = epsilon
         self.nmf_initialization = nmf_initialization
+        self.dimension = dimension
+        self.iter_max = iter_max
 
         self.utils = utils
 
@@ -103,17 +106,23 @@ class Explainer:
                 self.reducer = ChannelReducer.ChannelDecompositionReducer(
                     n_components=self.n_components,
                     reduction_alg=self.reducer_type,
-                    max_iter=10000,
+                    max_iter=self.iter_max,
                     # nndsvda better when sparsity is not desired
                     # nndsvd better fpr sparsity
                     init=self.nmf_initialization,
                 )
                 print("Running NMF with initialization", self.nmf_initialization)
-            elif ChannelReducer.ALGORITHM_NAMES[self.reducer_type] == "3d_decomposition":
-                self.reducer = 
+            elif (
+                ChannelReducer.ALGORITHM_NAMES[self.reducer_type] == "3d_decomposition"
+            ):
+                self.reducer = ChannelReducer.ChannelTensorDecompositionReducer(
+                    dimension=self.dimension,
+                    rank=self.n_components,
+                    iter_max=self.iter_max,
+                )
             else:
                 self.reducer = ChannelReducer.ChannelClusterReducer(
-                    n_components=self.n_components, reduction_alg=self.reducer_type
+                    n_components=self.n_components, reduction_alg=self.reducer_type,
                 )
 
         X_features = []
@@ -142,32 +151,36 @@ class Explainer:
             print("2/5 Reducer trained, spent {} s.".format(time.time() - start_time))
 
         # get the NMF CAVs (i.e. the "frequent" activation patterns produced by NMF, i.e. the H in NMF result (W,H))
-        self.cavs = self.reducer._reducer.components_
-        nX = nX.mean(axis=(1, 2))
-        self.feature_distribution = {
-            "overall": [
-                (nX[:, i].mean(), nX[:, i].std(), nX[:, i].min(), nX[:, i].max())
-                for i in range(self.n_components)
-            ]
-        }
+        if isinstance(self.reducer, ChannelReducer.ChannelTensorDecompositionReducer):
+            self.cavs = self.reducer.precomputed_tensors.factors[0].T
+        else:
+            self.cavs = self.reducer._reducer.components_
+        # compute some statistics (to remove)
+        # nX = nX.mean(axis=(1, 2))
+        # self.feature_distribution = {
+        #     "overall": [
+        #         (nX[:, i].mean(), nX[:, i].std(), nX[:, i].min(), nX[:, i].max())
+        #         for i in range(self.n_components)
+        #     ]
+        # }
 
         reX = []
-        self.feature_distribution["classes"] = []
+        # self.feature_distribution["classes"] = []
         for X_feature in X_features:
-            # transform the pieces for each composer, according to the NMF produced before
+            # transform the pieces for each composer, according to the factorization produced before
             # the result is in shape: n x h x w x c'
             t_feature = self.reducer.transform(X_feature)
             # take the mean for h and w dimensions to have a vector n x c'. No filter is applied here ( because threshold is None)
             # is the result pred_feature, only used for computing feature distribution?
-            pred_feature = self._feature_filter(t_feature)
-            self.feature_distribution["classes"].append(
-                [
-                    pred_feature.mean(axis=0),
-                    pred_feature.std(axis=0),
-                    pred_feature.min(axis=0),
-                    pred_feature.max(axis=0),
-                ]
-            )
+            # pred_feature = self._feature_filter(t_feature)
+            # self.feature_distribution["classes"].append(
+            #     [
+            #         pred_feature.mean(axis=0),
+            #         pred_feature.std(axis=0),
+            #         pred_feature.min(axis=0),
+            #         pred_feature.max(axis=0),
+            #     ]
+            # )
             # inverse NMF transform the vector n x h x w x c' to the original A matrix n x h x w x c
             reX.append(self.reducer.inverse_transform(t_feature))
 
@@ -209,9 +222,7 @@ class Explainer:
         print("4/5 Weight estimator initialized.")
 
         self.test_weight = []
-        for i in range(self.n_components):
-            # take one single CAV
-            cav = self.cavs[i, :]
+        for cav in self.cavs:
             # computing the CAV score for 2 target class at the same time
             # let's extract the logits for the 2 classes. We perturb the input with a very small variation in the direction of the CAV
             res1 = model.feature_predict(
@@ -235,12 +246,10 @@ class Explainer:
         self.test_weight = np.array(self.test_weight)
         print("5/5 Weight estimated.")
         # print the weights
-        for i in range(self.n_components):
-            print(f"Weights for CAV{i} (for target classes) : {self.test_weight[i,:]} ")
+        for i, weight in enumerate(self.test_weight):
+            print(f"Weights for CAV{i} (for target classes) : {weight} ")
         # find contrastive CAVs and print them
-        find_contrastive_cavs(
-            [self.test_weight[i, :] for i in range(self.test_weight.shape[0])]
-        )
+        find_contrastive_cavs(self.test_weight)
 
     def generate_features(self, model, loaders):
         self._visualize_features(model, loaders)
@@ -290,7 +299,7 @@ class Explainer:
 
     def _visualize_features(self, model, loaders, featureIdx=None, inter_dict=None):
         # this seems to just clip featuretopk at 20, if ever the number of components (i.e. number of features, i.e., number of cavs) is higher
-        featuretopk = min(self.featuretopk, self.n_components)
+        featuretopk = min(self.featuretopk, len(self.cavs))
 
         imgTopk = (
             self.featureimgtopk
@@ -538,7 +547,7 @@ class Explainer:
     def global_explanations(self):
         title = self.title
         fpath = (self.exp_location / self.title / "feature_imgs").absolute()
-        feature_topk = min(self.featuretopk, self.n_components)
+        feature_topk = min(self.featuretopk, len(self.cavs))
         feature_weight = self.test_weight
         class_names = self.class_names
         Nos = range(self.class_nos)
@@ -583,7 +592,7 @@ class Explainer:
                 font, self.reducer_err[No] * 100
             )
             resstr += '<tr><td><FONT POINT-SIZE="{}"> First {} features out of {} </FONT></td></tr>'.format(
-                font, feature_topk, self.n_components
+                font, feature_topk, len(self.cavs)
             )
             resstr += "</table>  >];\n"
 
@@ -613,7 +622,7 @@ class Explainer:
     ):
         utils = self.utils
         font = self.font
-        featuretopk = min(self.featuretopk, self.n_components)
+        featuretopk = min(self.featuretopk, len(self.cavs))
 
         target_classes = list(range(self.class_nos))
         w = self.test_weight
