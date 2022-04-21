@@ -52,10 +52,10 @@ def prepare_data(gpu_number, target_classes, batch_size):
     np.random.seed(seed)
     torch.backends.cudnn.deterministic = True
 
-    model_loc = "/share/cp/projects/concept_composers/experiments/kim2020/training/2202180920/model"
-    model_name = "resnet50_valloss_1.3208494186401367_acc_0.9237896919964558.pt"
+    model_loc = "/share/cp/projects/concept_composers/experiments/kim2020/training/2202180921/model"
+    model_name = "resnet50_valloss_1.277892827987671_acc_0.9258942617369257.pt"
 
-    model = resnet50(in_channels=2, num_classes=13)
+    model = resnet50(in_channels=1, num_classes=13)
     checkpoint = torch.load(os.path.join(model_loc, model_name), map_location=device)
     state_dict = {
         k.replace("module.", ""): checkpoint["model.state_dict"][k]
@@ -75,6 +75,7 @@ def prepare_data(gpu_number, target_classes, batch_size):
         age=False,
         transform=None,
         transpose_rng=None,
+        pr_channels=1,
     )
     # train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 
@@ -146,14 +147,14 @@ def train_explainer(
     loaders,
     iter_max,
     dimension,
-    reducer
+    reducer,
 ):
 
     wm = ICE.ModelWrapper.PytorchModelWrapper(
         model,
         batch_size=batch_size,
         predict_target=target_classes,
-        input_size=[2, 400, 88],
+        input_size=[1, 400, 88],
         input_channel_first=True,
         model_channel_first=True,
     )
@@ -179,7 +180,7 @@ def train_explainer(
         layer_name=layer_name,
         class_names=classes_names,
         utils=ICE.utils.img_utils(
-            img_size=(400, 88), nchannels=2, img_format="channels_first"
+            img_size=(400, 88), nchannels=1, img_format="channels_first"
         ),
         n_components=n_components,
         reducer_type=reducer,
@@ -189,7 +190,7 @@ def train_explainer(
     )
     # train reducer based on target classes
     exp.train_model(wm, loaders)
-    return exp
+    return exp, wm
 
 
 def build_explanation(exp, wm, loaders):
@@ -218,7 +219,7 @@ def build_explanation(exp, wm, loaders):
 @click.option(
     "--rank",
     help="An integer, or list of integers as string",
-    default="[20, 5,5, 100]",
+    default="[10, 8,3, 100]",
     type=str,
 )
 @click.option(
@@ -234,7 +235,7 @@ def start_experiment(
     loaders, classes_names, model = prepare_data(
         str(gpu_number), target_classes, batch_size
     )
-    train_explainer(
+    exp, wm = train_explainer(
         model,
         batch_size,
         target_classes,
@@ -244,8 +245,9 @@ def start_experiment(
         loaders,
         max_iter,
         dimension,
-        reducer
+        reducer,
     )
+    build_explanation(exp, wm, loaders)
 
 
 if __name__ == "__main__":

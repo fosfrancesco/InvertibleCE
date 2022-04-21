@@ -224,19 +224,47 @@ class img_utils:
 
         return x, h
 
-    def pianoroll2midi(
-        self, pianoroll3d, out_path, samples_per_second=20, piano_range=True
-    ):
-        """Generate a midi file from a pianoroll.
-        The expected pianoroll shape is (2,128,x)"""
+    # def pianoroll2midi(
+    #     self, pianoroll3d, out_path, samples_per_second=20, piano_range=True
+    # ):
+    #     """Generate a midi file from a pianoroll.
+    #     The expected pianoroll shape is (2,128,x)"""
+    #     if pianoroll3d.max() == 0:
+    #         raise ValueError(
+    #             "There should be at least one note played in the pianoroll"
+    #         )
+
+    #     note_array = partitura.utils.pianoroll_to_notearray(
+    #         pianoroll3d[1, :, :], time_div=samples_per_second, time_unit="sec"
+    #     )
+    #     performed_part = partitura.performance.PerformedPart.from_note_array(
+    #         note_array, id=None, part_name=None
+    #     )
+    #     partitura.io.exportmidi.save_performance_midi(performed_part, out_path)
+
+    def pianoroll2midi(self, pianoroll3d, out_path, samples_per_second=20, channels=2):
+        """Generate a midi file from a pianoroll. 
+        The expected pianoroll shape is (2,128,x) or (2,88,x), or """
         if pianoroll3d.max() == 0:
             raise ValueError(
                 "There should be at least one note played in the pianoroll"
             )
+        if pianoroll3d.shape[0] != channels or pianoroll3d.shape[1] not in (128, 88):
+            raise ValueError("Shape is expected to be ['channels', 128, x]")
 
-        note_array = partitura.utils.pianoroll_to_notearray(
-            pianoroll3d[1, :, :], time_div=samples_per_second, time_unit="sec"
-        )
+        # enlarge to 128 midi pitches if there are only 88.
+        # The inverse operation of slicing it with [:,21:109,: ]
+        if pianoroll3d.shape[1] == 88:
+            pianoroll3d = np.pad(pianoroll3d, ((0, 0), (21, 19), (0, 0)), "constant")
+
+        if channels == 2:  # take only the channel with note duration
+            note_array = partitura.utils.pianoroll_to_notearray(
+                pianoroll3d[1, :, :], time_div=samples_per_second, time_unit="sec"
+            )
+        elif channels == 1:  #  take the only channel
+            note_array = partitura.utils.pianoroll_to_notearray(
+                pianoroll3d[0, :, :], time_div=samples_per_second, time_unit="sec"
+            )
         performed_part = partitura.performance.PerformedPart.from_note_array(
             note_array, id=None, part_name=None
         )

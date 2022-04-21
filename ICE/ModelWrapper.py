@@ -177,6 +177,9 @@ class PytorchModelWrapper(ModelWrapper):
             nx = self._switch_channel(
                 nx, layer_in=layer_in, layer_out=layer_out, to_model=True
             )
+            # to remove the onset
+            # WARNING: this is highly specific for the midi dataset we are using!
+            # nx = nx[:, np.newaxis, 1, :, :]
             out.append(self._fun(nx, layer_in, layer_out))
 
         res = torch.cat(out, 0)

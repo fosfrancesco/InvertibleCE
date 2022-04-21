@@ -169,20 +169,13 @@ class Explainer:
         for X_feature in X_features:
             # transform the pieces for each composer, according to the factorization produced before
             # the result is in shape: n x h x w x c'
-            t_feature = self.reducer.transform(X_feature)
-            # take the mean for h and w dimensions to have a vector n x c'. No filter is applied here ( because threshold is None)
-            # is the result pred_feature, only used for computing feature distribution?
-            # pred_feature = self._feature_filter(t_feature)
-            # self.feature_distribution["classes"].append(
-            #     [
-            #         pred_feature.mean(axis=0),
-            #         pred_feature.std(axis=0),
-            #         pred_feature.min(axis=0),
-            #         pred_feature.max(axis=0),
-            #     ]
-            # )
-            # inverse NMF transform the vector n x h x w x c' to the original A matrix n x h x w x c
-            reX.append(self.reducer.inverse_transform(t_feature))
+            if self.reducer_type == "NMF":
+                t_feature = self.reducer.transform(X_feature)
+                # inverse NMF transform the vector n x h x w x c' to the original A matrix n x h x w x c
+                reX.append(self.reducer.inverse_transform(t_feature))
+            else:
+                t_feature, indices = self.reducer.transform(X_feature)
+                reX.append(self.reducer.inverse_transform(t_feature, indices))
 
         err = []
         for i in range(len(self.class_names)):
@@ -349,9 +342,14 @@ class Explainer:
                     0
                 ]  # this does nothing. Just the dataloader is returning a list with 1 element
                 # produce the W from the (W,H) NMF factorization already trained
-                featureMaps = self.reducer.transform(
-                    model.get_feature(X, self.layer_name)
-                )
+                if self.reducer_type == "NMF":
+                    featureMaps = self.reducer.transform(
+                        model.get_feature(X, self.layer_name)
+                    )
+                else:
+                    featureMaps, _ = self.reducer.transform(
+                        model.get_feature(X, self.layer_name)
+                    )
                 # average W to pass from from (n x h x w x c') to (n x c')
                 X_feature = self._feature_filter(featureMaps)
 
@@ -534,12 +532,14 @@ class Explainer:
                 midifile_filt_path = Path(feature_path, f"feature{idx}-{i}_filt.mid")
                 try:
                     self.utils.pianoroll2midi(
-                        np.transpose(x_filt[i], (0, 2, 1)), midifile_filt_path
+                        np.transpose(x_filt[i], (0, 2, 1)),
+                        midifile_filt_path,
+                        channels=1,
                     )
                     if unfiltered_midi:
                         midifile_path = Path(feature_path, f"feature{idx}-{i}.mid")
                         self.utils.pianoroll2midi(
-                            np.transpose(x[i], (0, 2, 1)), midifile_path
+                            np.transpose(x[i], (0, 2, 1)), midifile_path, channels=1
                         )
                 except ValueError:
                     print(f"No midi file generated for feature{idx}-{i}")

@@ -201,6 +201,7 @@ class ChannelTensorDecompositionReducer(object):
         self.trained_shape = None
         self.orig_shape = None
         self._iter_max = iter_max
+        self.orig_dataset = None
 
     def _flat_transpose_pad(self, acts, pad=False):
         """ flat the input matrix A to (c x (h x w) x n),
@@ -236,19 +237,11 @@ class ChannelTensorDecompositionReducer(object):
             acts = acts.reshape(self.orig_shape)
         return acts
 
-    # def fit(self, acts):
-    #     # TODO to update
-    #     if hasattr(self._reducer, "partial_fit"):
-    #         res = self._apply_flat(self._reducer.partial_fit, acts)
-    #     else:
-    #         res = self._apply_flat(self._reducer.fit, acts)
-    #     self._is_fit = True
-    #     return res
-
     def fit_transform(self, acts):
         """Fit a tucker model and return the error."""
         # matrix now has the shape n x h x w x c
         self.orig_shape = acts.shape
+        self.orig_dataset = acts
         # transpose and flat
         acts_flat = self._flat_transpose_pad(acts)
         # now run tucker decomposition
@@ -256,6 +249,7 @@ class ChannelTensorDecompositionReducer(object):
         tensors, error = non_negative_tucker_hals(
             acts_flat, rank=self.rank, n_iter_max=self._iter_max, return_errors=True
         )
+        print("Minimum Tucker error", error[-1])
         normalized_tensors = normalize_tensors(tensors)
         self.precomputed_tensors = normalized_tensors
         self._is_fit = True
@@ -267,42 +261,67 @@ class ChannelTensorDecompositionReducer(object):
         plt.savefig("test_plot.png")
 
     def transform(self, acts):
-        """Return the data tranformed by and already fitted Tucker model."""
-        # acts is not the pianoroll for only some pieces
-        # first flat transpose and pad
-        padded_acts = self._flat_transpose_pad(acts, pad=True)
-        # now tucker decompose with fixed modes
-        (core, factors), errors = non_negative_tucker_hals(
-            padded_acts,
-            rank=self.rank,
-            return_errors=True,
-            n_iter_max=self._iter_max,
-            fixed_modes=[0, 1],
-            init=self.precomputed_tensors.tucker_copy(),
+        indices = []
+        for piece in acts:
+            indices.append((self.orig_dataset == piece).all(axis=-1).nonzero()[0][0])
+        output = tensorly.tenalg.multi_mode_dot(
+            self.precomputed_tensors.core, self.precomputed_tensors.factors, skip=0
         )
-        # 3 and 2 mode multiplication, skip channel-mode mult
-        output = tensorly.tenalg.multi_mode_dot(core, factors, skip=0)
         # reshape and translate the output so we return n x h x w x c'
         output = self._inverse_flat_transpose(output)
         # delete zero-padded pieces
-        output = output[: acts.shape[0], :, :, :]
-        return output
+        output = output[indices, :, :, :]
+        return output, indices
 
-    def inverse_transform(self, acts):
-        # flat transpose
-        padded_acts = self._flat_transpose_pad(acts, pad=True)
+        # """Return the data tranformed by and already fitted Tucker model."""
+        # # acts is not the pianoroll for only some pieces
+        # # first flat transpose and pad
+        # padded_acts = self._flat_transpose_pad(acts, pad=True)
+        # # now tucker decompose with fixed modes (except piece mode)
+        # fixed_modes = [0, 1] if self.dimension == 3 else [0, 1, 2]
+        # (core, factors), errors = non_negative_tucker_hals(
+        #     padded_acts,
+        #     rank=self.rank,
+        #     return_errors=True,
+        #     n_iter_max=self._iter_max,
+        #     fixed_modes=fixed_modes,
+        #     init=self.precomputed_tensors.tucker_copy(),
+        # )
+        # print("Minimum fixed Mode Tucker error", errors[-1])
+        # # 3 and 2 mode multiplication, skip channel-mode mult
+        # output = tensorly.tenalg.multi_mode_dot(core, factors, skip=0)
+        # # reshape and translate the output so we return n x h x w x c'
+        # output = self._inverse_flat_transpose(output)
+        # # delete zero-padded pieces
+        # output = output[: acts.shape[0], :, :, :]
+        # return output
+
+    def inverse_transform(self, acts, indices):
         if self._is_fit:
-            # only step missing to the reconstructed matrix is the 1-mode multiplication
-            # 3 and 2 mode mult has been performed in transform()
-            mode1_matrix = self.precomputed_tensors.factors[0]
-            reconstructed = tensorly.tenalg.mode_dot(padded_acts, mode1_matrix, 0)
+            reconstructed = tensorly.tucker_to_tensor(self.precomputed_tensors)
             # transpose and reshape it in original shape n x h x w x c
             reconstructed = self._inverse_flat_transpose(
                 reconstructed, reduced_channel=False
             )
-            return reconstructed[: acts.shape[0], :, :, :]
+            return reconstructed[indices, :, :, :]
         else:
             raise Exception("The Reducer must be fit first")
+
+    # def inverse_transform(self, acts):
+    #     # flat transpose
+    #     padded_acts = self._flat_transpose_pad(acts, pad=True)
+    #     if self._is_fit:
+    #         # only step missing to the reconstructed matrix is the 1-mode multiplication
+    #         # 3 and 2 mode mult has been performed in transform()
+    #         mode1_matrix = self.precomputed_tensors.factors[0]
+    #         reconstructed = tensorly.tenalg.mode_dot(padded_acts, mode1_matrix, 0)
+    #         # transpose and reshape it in original shape n x h x w x c
+    #         reconstructed = self._inverse_flat_transpose(
+    #             reconstructed, reduced_channel=False
+    #         )
+    #         return reconstructed[: acts.shape[0], :, :, :]
+    #     else:
+    #         raise Exception("The Reducer must be fit first")
 
 
 def normalize_tensors(tucker_tensor):
