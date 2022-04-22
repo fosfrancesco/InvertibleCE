@@ -261,9 +261,15 @@ class ChannelTensorDecompositionReducer(object):
         plt.savefig("test_plot.png")
 
     def transform(self, acts):
-        indices = []
-        for piece in acts:
-            indices.append((self.orig_dataset == piece).all(axis=-1).nonzero()[0][0])
+        # indices = []
+        equal_axis = (-1, -2, -3) if self.dimension == 4 else (-1, -2)
+        indices = [
+            np.all(self.orig_dataset == piece, axis=equal_axis).nonzero()[0][0]
+            for piece in acts
+        ]
+        # for piece in acts:
+        #     indices.append(np.all(self.orig_dataset==piece, axis = equal_axis).nonzero()[0][0])
+        #     # indices.append((self.orig_dataset == piece).all(axis=-1).nonzero()[0][0])
         output = tensorly.tenalg.multi_mode_dot(
             self.precomputed_tensors.core, self.precomputed_tensors.factors, skip=0
         )

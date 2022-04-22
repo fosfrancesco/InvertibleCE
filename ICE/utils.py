@@ -12,6 +12,9 @@ import os
 from skimage.transform import resize
 import partitura
 import tensorly as tl
+import plotly
+import plotly.express as px
+import plotly.graph_objects as go
 
 
 mean = [103.939, 116.779, 123.68]
@@ -167,7 +170,14 @@ class img_utils:
         plt.show()
 
     def img_filter(
-        self, x, h, threshold=0.5, background=0.1, smooth=False, minmax=False
+        self,
+        x,
+        h,
+        threshold=0.5,
+        background=0.1,
+        smooth=False,
+        minmax=False,
+        skip_norm=False,
     ):
         x = x.copy()
         h = h.copy()
@@ -175,20 +185,19 @@ class img_utils:
         if minmax:
             h = h - h.min()
 
-        h = h * (h > 0)
-        for i in range(h.shape[0]):
-            h[i] = h[i] / (h[i].max() + EPSILON)
+        if not skip_norm:
+            h = h * (h > 0)
+            for i in range(h.shape[0]):
+                h[i] = h[i] / (h[i].max() + EPSILON)
 
-        h = (h - threshold) * (1 / (1 - threshold))
+            h = (h - threshold) * (1 / (1 - threshold))
 
-        # h = h * (h>0)
-
-        h = self.resize_img(h, smooth=smooth)
-        h = (h > 0).astype("float") * (1 - background) + background
-        h_mask = np.repeat(h, self.nchannels).reshape(list(h.shape) + [-1])
-        if self.img_format == "channels_first":
-            h_mask = np.transpose(h_mask, (0, 3, 1, 2))
-        x = x * h_mask  # Commented to show for MIDI
+            h = self.resize_img(h, smooth=smooth)
+            h = (h > 0).astype("float") * (1 - background) + background
+            h_mask = np.repeat(h, self.nchannels).reshape(list(h.shape) + [-1])
+            if self.img_format == "channels_first":
+                h_mask = np.transpose(h_mask, (0, 3, 1, 2))
+            x = x * h_mask  # Commented to show for MIDI
 
         h = h - h.min()
         h = h / (h.max() + EPSILON)
@@ -329,11 +338,88 @@ class img_utils:
             ana.append(np.array([C1, C2, C, res]))
         return [np.array(ana), reducer]
 
+    def plotly_plot(self, x, h):
+        number_of_steps = 10
+        number_of_figures = 5
+
+        # Create figure
+        fig = plotly.subplots.make_subplots(number_of_figures, 1)
+        for i in range(number_of_figures):
+            fig.add_trace(
+                go.Heatmap(z=x[i, 0, :, :].T / x.max(), colorscale="hot_r"), i + 1, 1
+            )
+            # Add traces, one for each slider step
+            for step in np.linspace(0, 1, number_of_steps):
+                fig.add_trace(
+                    go.Contour(
+                        z=h[i].T,
+                        showscale=False,
+                        line_color="black",
+                        contours=dict(value=step, type="constraint", operation=">="),
+                        line_width=2,
+                    ),
+                    i + 1,
+                    1,
+                )
+
+        fig.update_traces(showscale=False)
+        fig.update_layout(showlegend=False)
+        fig.update_xaxes(showticklabels=False)
+        fig.update_yaxes(showticklabels=False)
+        fig.update_layout(height=1200)
+
+        # Make 1th trace visible
+        # fig.data[1].visible = True
+
+        # Create and add slider
+        steps = []
+        for i in range(number_of_steps):
+            step = dict(
+                method="update",
+                args=[
+                    {"visible": [False] * len(fig.data)},
+                    {"title": "Slider switched to step: " + str(i)},
+                ],  # layout attribute
+            )
+            for fi in range(number_of_figures):
+                # print(i+(fi*(number_of_steps+1)-1))
+                step["args"][0]["visible"][
+                    i + (fi * (number_of_steps + 1))
+                ] = True  # Toggle i'th trace to "visible"
+                step["args"][0]["visible"][
+                    0 + (fi * (number_of_steps + 1))
+                ] = True  # Toggle initial figure to be alway visible
+            steps.append(step)
+
+        sliders = [
+            dict(
+                active=0,
+                currentvalue={"prefix": "threshold: "},
+                pad={"t": 0},
+                steps=steps,
+            )
+        ]
+
+        fig.update_layout(sliders=sliders)
+
+        return fig
+
+        # fig.show()
+        # fig.write_html("test_plot.html")
+
 
 def find_contrastive_cavs(list_of_concept_sensitivity, diff_threshold=0):
-    for i, concept_scores in enumerate(list_of_concept_sensitivity):
-        if (max(concept_scores) - min(concept_scores) > diff_threshold) and (
-            min(concept_scores) < 0 and max(concept_scores) > 0
+    difference = [np.abs(sen[1] - sen[0]) for sen in list_of_concept_sensitivity]
+    sort_diff_inds = np.argsort(difference)[::-1]
+    for ind in sort_diff_inds:
+        if (
+            list_of_concept_sensitivity[ind][0] * list_of_concept_sensitivity[ind][1]
+            < 0
         ):
-            print(f"Promising CAV {i}")
+            print(f"Promising CAV {ind}")
+    # for i, concept_scores in enumerate(list_of_concept_sensitivity):
+    #     if (max(concept_scores) - min(concept_scores) > diff_threshold) and (
+    #         min(concept_scores) < 0 and max(concept_scores) > 0
+    #     ):
+    #         print(f"Promising CAV {i}")
 

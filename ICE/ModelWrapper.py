@@ -160,7 +160,7 @@ class PytorchModelWrapper(ModelWrapper):
 
         return data_out
 
-    def _batch_fn(self, x, layer_in="input", layer_out="output"):
+    def _batch_fn(self, x, layer_in="input", layer_out="output", return_data=False):
         # numpy in numpy out
 
         if type(x) == torch.Tensor or type(x) == np.ndarray:
@@ -170,6 +170,7 @@ class PytorchModelWrapper(ModelWrapper):
             x = DataLoader(dataset, batch_size=self.batch_size)
 
         out = []
+        data = []
 
         for nx in x:
             nx = nx[0]
@@ -177,10 +178,9 @@ class PytorchModelWrapper(ModelWrapper):
             nx = self._switch_channel(
                 nx, layer_in=layer_in, layer_out=layer_out, to_model=True
             )
-            # to remove the onset
-            # WARNING: this is highly specific for the midi dataset we are using!
-            # nx = nx[:, np.newaxis, 1, :, :]
             out.append(self._fun(nx, layer_in, layer_out))
+            if return_data:
+                data.extend(nx)
 
         res = torch.cat(out, 0)
 
@@ -190,17 +190,20 @@ class PytorchModelWrapper(ModelWrapper):
         if self.numpy_out:
             res = res.detach().numpy()
 
-        return res
+        if return_data:
+            return res, data
+        else:
+            return res
 
     def set_predict_target(self, predict_target):
         self.predict_target = predict_target
 
-    def get_feature(self, x, layer_name):
+    def get_feature(self, x, layer_name, return_data=False):
         if layer_name not in self.layer_dict:
             print("Target layer not exists")
             return None
 
-        out = self._batch_fn(x, layer_out=layer_name)
+        out = self._batch_fn(x, layer_out=layer_name, return_data=return_data)
 
         return out
 

@@ -49,6 +49,7 @@ class Explainer:
         self.layer_name = layer_name
         self.class_names = class_names
         self.class_nos = len(class_names) if class_names is not None else 0
+        self.X_features = None
 
         self.keep_feature_images = keep_feature_images
         self.useMean = useMean
@@ -129,6 +130,8 @@ class Explainer:
         for loader in loaders:
             # save all activations of the output of the target layer for the input composer dataset.
             X_features.append(model.get_feature(loader, self.layer_name))
+        # save X_features for later usage, to avoid having to recompute them
+        self.X_features = X_features
         print("1/5 Feature maps gathered.")
 
         if not self.reducer._is_fit:
@@ -199,18 +202,18 @@ class Explainer:
 
         print("3/5 Error estimated, fidelity: {}.".format(self.reducer_err))
 
-        return self.reducer_err
+        return (self.reducer_err,)
 
     def _estimate_weight(self, model, loaders):
         if self.reducer is None:
             return
 
-        X_features = []
+        # X_features = []
 
-        for loader in loaders:
-            # Computing the activations, but only for the first ESTIMATE_NUM input pieces. Why resctrict to this low number?
-            X_features.append(model.get_feature(loader, self.layer_name)[:ESTIMATE_NUM])
-        X_feature = np.concatenate(X_features)
+        # for loader in loaders:
+        #     # Computing the activations, but only for the first ESTIMATE_NUM input pieces. Why resctrict to this low number?
+        #     X_features.append(model.get_feature(loader, self.layer_name)[:ESTIMATE_NUM])
+        nX_feature = np.concatenate(self.X_features)
 
         print("4/5 Weight estimator initialized.")
 
@@ -219,10 +222,10 @@ class Explainer:
             # computing the CAV score for 2 target class at the same time
             # let's extract the logits for the 2 classes. We perturb the input with a very small variation in the direction of the CAV
             res1 = model.feature_predict(
-                X_feature - self.epsilon * cav, layer_name=self.layer_name
+                nX_feature - self.epsilon * cav, layer_name=self.layer_name
             )
             res2 = model.feature_predict(
-                X_feature + self.epsilon * cav, layer_name=self.layer_name
+                nX_feature + self.epsilon * cav, layer_name=self.layer_name
             )
 
             res_dif = res2 - res1
@@ -334,71 +337,56 @@ class Explainer:
                 inter_dict[k] = [[None, None] for No in featureIdx]
 
         print("loading training data")
+        X_features = self.X_features
+        composers_pieces = []
+        for loader in loaders:
+            # save all activations of the output of the target layer for the input composer dataset.
+            feat, data = model.get_feature(loader, self.layer_name, return_data=True)
+            # X_features.append(feat)
+            composers_pieces.append(np.stack(data))
+
+        assert len(X_features) == len(self.class_names)
         # iterate over dataloaders (one dataloader for each target class)
-        for i, loader in enumerate(loaders):
-            # iterate over a minibatch in the dataloader
-            for X in loader:
-                X = X[
-                    0
-                ]  # this does nothing. Just the dataloader is returning a list with 1 element
-                # produce the W from the (W,H) NMF factorization already trained
-                if self.reducer_type == "NMF":
-                    featureMaps = self.reducer.transform(
-                        model.get_feature(X, self.layer_name)
-                    )
-                else:
-                    featureMaps, _ = self.reducer.transform(
-                        model.get_feature(X, self.layer_name)
-                    )
-                # average W to pass from from (n x h x w x c') to (n x c')
-                X_feature = self._feature_filter(featureMaps)
+        for i, (X_feature, comp_pieces) in enumerate(zip(X_features, composers_pieces)):
+            # produce the W from the (W,H) NMF factorization already trained
+            if self.reducer_type == "NMF":
+                featureMaps = self.reducer.transform(X_feature)
+            else:
+                featureMaps, _ = self.reducer.transform(X_feature)
+            # average W to pass from from (n x h x w x c') to (n x c')
+            featureMaps_avg = self._feature_filter(featureMaps)
 
-                # iterate for the different CAVs
-                for No in featureIdx:
-                    # None, None at first call, used to concatenate features for one CAV in different minibatches and different dataloaders
-                    samples_top, heatmap_top = features[No]
-                    samples_contrast, heatmap_contrast = features_contrast[No]
-                    # take the indices of the last 5 vectors (i.e. pieces that activates the CAVs most)
-                    idx_most = X_feature[:, No].argsort()[-imgTopk:]
-                    # take the indices of the first 5 vectors (i.e. pieces that activates the CAVs less)
-                    idx_less = X_feature[:, No].argsort()[:imgTopk]
-                    # take only the top/bottom 5 pieces from the full W matrix
-                    nheatmap_most = featureMaps[idx_most, :, :, No]
-                    nheatmap_less = featureMaps[idx_less, :, :, No]
-                    # take the top/bottom 5 pieces from the input pianorolls matrix
-                    nsamples_most = X[idx_most, ...]
-                    nsamples_less = X[idx_less, ...]
+            # iterate for the different CAVs
+            for No in featureIdx:
+                # None, None at first call, used to concatenate features for one CAV in different minibatches and different dataloaders
+                samples_top, heatmap_top = features[No]
+                samples_contrast, heatmap_contrast = features_contrast[No]
+                # take the indices of the last 5 vectors (i.e. pieces that activates the CAVs most)
+                idx_most = featureMaps_avg[:, No].argsort()[-imgTopk:]
+                # take the indices of the first 5 vectors (i.e. pieces that activates the CAVs less)
+                idx_less = featureMaps_avg[:, No].argsort()[:imgTopk]
+                # take only the top/bottom 5 pieces from the full W matrix
+                nheatmap_most = featureMaps[idx_most, :, :, No]
+                nheatmap_less = featureMaps[idx_less, :, :, No]
+                # take the top/bottom 5 pieces from the input pianorolls matrix
+                nsamples_most = comp_pieces[idx_most, ...]
+                nsamples_less = comp_pieces[idx_less, ...]
 
-                    # find top/bottom 5 across all minibatches and dataloader
-                    # we are losing the about the target class for the samples
-                    samples_top, heatmap_top = self._update_feature_dict(
-                        samples_top, heatmap_top, nsamples_most, nheatmap_most
-                    )
-                    samples_contrast, heatmap_contrast = self._update_feature_dict(
-                        samples_contrast,
-                        heatmap_contrast,
-                        nsamples_less,
-                        nheatmap_less,
-                        keep="lowest",
-                    )
+                # find top/bottom 5 across all minibatches and dataloader
+                # we are losing the about the target class for the samples
+                samples_top, heatmap_top = self._update_feature_dict(
+                    samples_top, heatmap_top, nsamples_most, nheatmap_most
+                )
+                samples_contrast, heatmap_contrast = self._update_feature_dict(
+                    samples_contrast,
+                    heatmap_contrast,
+                    nsamples_less,
+                    nheatmap_less,
+                    keep="lowest",
+                )
 
-                    features[No] = [samples_top, heatmap_top]
-                    features_contrast[No] = [samples_contrast, heatmap_contrast]
-
-                    # TODO : what is inter_dict? When is it used?
-                    if inter_dict is not None:
-                        print("WARNING: interdict is doing something")
-                        for k in inter_dict.keys():
-                            vmin = self.feature_distribution["overall"][No][2]
-                            vmax = self.feature_distribution["overall"][No][3]
-                            temp_v = (vmax - vmin) * k + vmin
-                            inter_dict[k][No] = self._update_feature_dict(
-                                inter_dict[k][No][0],
-                                inter_dict[k][No][1],
-                                X,
-                                featureMaps[:, :, :, No],
-                                threshold=temp_v,
-                            )
+                features[No] = [samples_top, heatmap_top]
+                features_contrast[No] = [samples_contrast, heatmap_contrast]
 
             print(
                 "Done with class: {}, {}/{}".format(
@@ -411,7 +399,9 @@ class Explainer:
             idx = h.mean(axis=(1, 2)).argmax()
             for i in range(h.shape[0]):
                 if h[i].max() == 0:
-                    print("WARNING: creating repeat prototype")
+                    print(
+                        "WARNING: creating repeat prototype. Probably the explainer is not good enough."
+                    )
                     x[i] = x[idx]
                     h[i] = h[idx]
 
@@ -419,6 +409,136 @@ class Explainer:
         self.features_contrast.update(features_contrast)
         self.save()
         return inter_dict
+
+    # def _visualize_features(self, model, loaders, featureIdx=None, inter_dict=None):
+    #     # this seems to just clip featuretopk at 20, if ever the number of components (i.e. number of features, i.e., number of cavs) is higher
+    #     featuretopk = min(self.featuretopk, len(self.cavs))
+
+    #     imgTopk = (
+    #         self.featureimgtopk
+    #     )  # the number of images that maximally activate each concept to use as example
+    #     if featureIdx is None:
+    #         featureIdx = []
+    #         tidx = []
+    #         w = self.test_weight
+    #         for i, _ in enumerate(self.class_names):
+    #             # take the weights for all CAVs that refer to only a specific target class
+    #             tw = w[:, i]
+    #             # concatenate in a single list, the index of the weights in decreasing order.
+    #             # for 3 features and 2 target classes you will have first the 3 indices of the 1st target class, then the other 3
+    #             tidx += tw.argsort()[::-1][:featuretopk].tolist()
+    #         # why bothering argsorting and reversing if we are loosing the order with the "set" function?
+    #         # I guess this initial part is doing something only if you have more components than 20, so you are saving only the indices of the bigger 20s
+    #         featureIdx += list(set(tidx))
+
+    #     # this next part stop the computation for the already computed features
+    #     # the first time, nowIdx will be empty and featureIdx will stay the same
+    #     nowIdx = set(self.features.keys())
+    #     featureIdx = list(set(featureIdx) - nowIdx)
+    #     featureIdx.sort()
+    #     if len(featureIdx) == 0:
+    #         print("All feature gathered")
+    #         return
+
+    #     print("visualizing features :")
+    #     print(featureIdx)
+    #     # initialize the features
+    #     features = {}
+    #     features_contrast = {}
+    #     for No in featureIdx:
+    #         features[No] = [None, None]
+    #         features_contrast[No] = [None, None]
+    #     # TODO: what is inter_dict used for?
+    #     if inter_dict is not None:
+    #         for k in inter_dict.keys():
+    #             inter_dict[k] = [[None, None] for No in featureIdx]
+
+    #     print("loading training data")
+    #     # iterate over dataloaders (one dataloader for each target class)
+    #     for i, loader in enumerate(loaders):
+    #         # iterate over a minibatch in the dataloader
+    #         for X in loader:
+    #             X = X[
+    #                 0
+    #             ]  # this does nothing. Just the dataloader is returning a list with 1 element
+    #             # produce the W from the (W,H) NMF factorization already trained
+    #             if self.reducer_type == "NMF":
+    #                 featureMaps = self.reducer.transform(
+    #                     model.get_feature(X, self.layer_name)
+    #                 )
+    #             else:
+    #                 featureMaps, _ = self.reducer.transform(
+    #                     model.get_feature(X, self.layer_name)
+    #                 )
+    #             # average W to pass from from (n x h x w x c') to (n x c')
+    #             X_feature = self._feature_filter(featureMaps)
+
+    #             # iterate for the different CAVs
+    #             for No in featureIdx:
+    #                 # None, None at first call, used to concatenate features for one CAV in different minibatches and different dataloaders
+    #                 samples_top, heatmap_top = features[No]
+    #                 samples_contrast, heatmap_contrast = features_contrast[No]
+    #                 # take the indices of the last 5 vectors (i.e. pieces that activates the CAVs most)
+    #                 idx_most = X_feature[:, No].argsort()[-imgTopk:]
+    #                 # take the indices of the first 5 vectors (i.e. pieces that activates the CAVs less)
+    #                 idx_less = X_feature[:, No].argsort()[:imgTopk]
+    #                 # take only the top/bottom 5 pieces from the full W matrix
+    #                 nheatmap_most = featureMaps[idx_most, :, :, No]
+    #                 nheatmap_less = featureMaps[idx_less, :, :, No]
+    #                 # take the top/bottom 5 pieces from the input pianorolls matrix
+    #                 nsamples_most = X[idx_most, ...]
+    #                 nsamples_less = X[idx_less, ...]
+
+    #                 # find top/bottom 5 across all minibatches and dataloader
+    #                 # we are losing the about the target class for the samples
+    #                 samples_top, heatmap_top = self._update_feature_dict(
+    #                     samples_top, heatmap_top, nsamples_most, nheatmap_most
+    #                 )
+    #                 samples_contrast, heatmap_contrast = self._update_feature_dict(
+    #                     samples_contrast,
+    #                     heatmap_contrast,
+    #                     nsamples_less,
+    #                     nheatmap_less,
+    #                     keep="lowest",
+    #                 )
+
+    #                 features[No] = [samples_top, heatmap_top]
+    #                 features_contrast[No] = [samples_contrast, heatmap_contrast]
+
+    #                 # TODO : what is inter_dict? When is it used?
+    #                 if inter_dict is not None:
+    #                     print("WARNING: interdict is doing something")
+    #                     for k in inter_dict.keys():
+    #                         vmin = self.feature_distribution["overall"][No][2]
+    #                         vmax = self.feature_distribution["overall"][No][3]
+    #                         temp_v = (vmax - vmin) * k + vmin
+    #                         inter_dict[k][No] = self._update_feature_dict(
+    #                             inter_dict[k][No][0],
+    #                             inter_dict[k][No][1],
+    #                             X,
+    #                             featureMaps[:, :, :, No],
+    #                             threshold=temp_v,
+    #                         )
+
+    #         print(
+    #             "Done with class: {}, {}/{}".format(
+    #                 self.class_names[i], i + 1, len(loaders)
+    #             )
+    #         )
+    #     # create repeat prototypes in case lack of samples
+    #     # TODO : check what is that. It does not seems to enter here
+    #     for no, (x, h) in features.items():
+    #         idx = h.mean(axis=(1, 2)).argmax()
+    #         for i in range(h.shape[0]):
+    #             if h[i].max() == 0:
+    #                 print("WARNING: creating repeat prototype")
+    #                 x[i] = x[idx]
+    #                 h[i] = h[idx]
+
+    #     self.features.update(features)
+    #     self.features_contrast.update(features_contrast)
+    #     self.save()
+    #     return inter_dict
 
     def _save_features(
         self, threshold=0.5, background=0.2, smooth=True, contrast=False
@@ -484,11 +604,28 @@ class Explainer:
             for x_vert in [
                 i * nimg.shape[1] / x.shape[0] for i in range(1, x.shape[0])
             ]:
-                fig.axes[0].axvline(x_vert, color="white")
+                fig.axes[0].axvline(x_vert, color="black")
             fig.savefig(
                 feature_path / (str(idx) + ".jpg"), bbox_inches="tight", pad_inches=0
             )
             plt.close(fig)
+            # create the plotly figure. We recompute x,h because we don't need smoothing
+            x, h = features[idx]
+            minmax = False
+            if self.reducer_type == "PCA":
+                minmax = True
+            x, h = self.utils.img_filter(
+                x,
+                h,
+                threshold=1,
+                background=0,
+                smooth=smooth,
+                minmax=minmax,
+                skip_norm=True,
+            )
+            plotly_fig = self.utils.plotly_plot(x, h)
+            plotly_fig.write_html("test_plot.html")
+            plotly_fig.write_html(feature_path / (str(idx) + "plotly.html"))
 
     def _sonify_features(
         self,

@@ -131,7 +131,7 @@ def prepare_data(gpu_number, target_classes, batch_size):
         datasets.append(tdataset)
         loaders.append(
             torch.utils.data.DataLoader(
-                tdataset, batch_size=batch_size, shuffle=True, num_workers=2
+                tdataset, batch_size=batch_size, shuffle=False, num_workers=2
             )
         )
     return (loaders, classes_names, model)
@@ -206,8 +206,8 @@ def build_explanation(exp, wm, loaders):
 
 
 @click.command()
-@click.option("--reducer", help="Either NMF or NTD", default="NTD", type=str)
-@click.option("--max-iter", default=10, type=int)
+@click.option("--reducer", help="Either NMF or NTD", default="NMF", type=str)
+@click.option("--max-iter", default=200, type=int)
 @click.option("--gpu-number", default=0, type=int)
 @click.option(
     "--targets",
@@ -215,12 +215,11 @@ def build_explanation(exp, wm, loaders):
     default="[5,6]",
     type=str,
 )
-@click.option("--dimension", default=4, type=int)
 @click.option(
-    "--rank",
-    help="An integer, or list of integers as string",
-    default="[10, 8,3, 100]",
-    type=str,
+    "--dimension", help="An integer, considered only for NTD", default=4, type=int
+)
+@click.option(
+    "--rank", help="An integer, or list of integers as string", default="10", type=str,
 )
 @click.option(
     "--layer", help="The name of the target layer", default="layer4", type=str
