@@ -622,6 +622,7 @@ class Explainer:
                 smooth=smooth,
                 minmax=minmax,
                 skip_norm=True,
+                skip_mask=True,
             )
             plotly_fig = self.utils.plotly_plot(x, h)
             plotly_fig.write_html("test_plot.html")

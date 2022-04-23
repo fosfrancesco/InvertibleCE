@@ -178,6 +178,7 @@ class img_utils:
         smooth=False,
         minmax=False,
         skip_norm=False,
+        skip_mask=False,
     ):
         x = x.copy()
         h = h.copy()
@@ -192,7 +193,9 @@ class img_utils:
 
             h = (h - threshold) * (1 / (1 - threshold))
 
-            h = self.resize_img(h, smooth=smooth)
+        h = self.resize_img(h, smooth=smooth)
+
+        if not skip_mask:
             h = (h > 0).astype("float") * (1 - background) + background
             h_mask = np.repeat(h, self.nchannels).reshape(list(h.shape) + [-1])
             if self.img_format == "channels_first":
@@ -417,9 +420,4 @@ def find_contrastive_cavs(list_of_concept_sensitivity, diff_threshold=0):
             < 0
         ):
             print(f"Promising CAV {ind}")
-    # for i, concept_scores in enumerate(list_of_concept_sensitivity):
-    #     if (max(concept_scores) - min(concept_scores) > diff_threshold) and (
-    #         min(concept_scores) < 0 and max(concept_scores) > 0
-    #     ):
-    #         print(f"Promising CAV {i}")
 
