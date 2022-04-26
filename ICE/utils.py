@@ -411,13 +411,17 @@ class img_utils:
         # fig.write_html("test_plot.html")
 
 
-def find_contrastive_cavs(list_of_concept_sensitivity, diff_threshold=0):
+def find_contrastive_cavs(list_of_concept_sensitivity, print_sug=True):
     difference = [np.abs(sen[1] - sen[0]) for sen in list_of_concept_sensitivity]
     sort_diff_inds = np.argsort(difference)[::-1]
-    for ind in sort_diff_inds:
-        if (
-            list_of_concept_sensitivity[ind][0] * list_of_concept_sensitivity[ind][1]
-            < 0
-        ):
+    # remove not contrastive CAVs
+    filtered_diff_inds = [
+        ind
+        for ind in sort_diff_inds.tolist()
+        if list_of_concept_sensitivity[ind][0] * list_of_concept_sensitivity[ind][1] < 0
+    ]
+    if print_sug:
+        for ind in filtered_diff_inds:
             print(f"Promising CAV {ind}")
+    return filtered_diff_inds
 

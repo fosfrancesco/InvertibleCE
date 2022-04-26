@@ -63,6 +63,7 @@ class ChannelDecompositionReducer(object):
         self.n_components = n_components
         self._reducer = reduction_alg(n_components=n_components, **kwargs)
         self._is_fit = False
+        self.reducer_conv = None
 
     def _apply_flat(cls, f, acts):
         """ flat the input matrix A to (something x c), 
@@ -91,6 +92,7 @@ class ChannelDecompositionReducer(object):
         # acts is the input matrix to factorize.
         res = self._apply_flat(self._reducer.fit_transform, acts)
         self._is_fit = True
+        self.reducer_conv = self._reducer.reconstruction_err_
         return res
 
     def transform(self, acts):
@@ -202,6 +204,7 @@ class ChannelTensorDecompositionReducer(object):
         self.orig_shape = None
         self._iter_max = iter_max
         self.orig_dataset = None
+        self.reducer_conv = None
 
     def _flat_transpose_pad(self, acts, pad=False):
         """ flat the input matrix A to (c x (h x w) x n),
@@ -254,11 +257,9 @@ class ChannelTensorDecompositionReducer(object):
         self.precomputed_tensors = normalized_tensors
         self._is_fit = True
         self.trained_shape = acts_flat.shape
+        self.reducer_conv = error
         # this is not returning a transformed version of the data. Behaviour is different than NMF
-        import matplotlib.pyplot as plt
-
-        plt.plot(error)
-        plt.savefig("test_plot.png")
+        
 
     def transform(self, acts):
         # indices = []

@@ -199,7 +199,7 @@ def build_explanation(exp, wm, loaders):
     # generate global explanations
     exp.global_explanations()
     # generate midi of global explanation
-    exp._sonify_features()
+    exp._sonify_features(unfiltered_midi=True)
     exp._sonify_features(contrast=True, unfiltered_midi=True)
     # save the explainer, use load() to load it with the same title
     exp.save()
@@ -226,6 +226,30 @@ def build_explanation(exp, wm, loaders):
 )
 @click.option("--batch-size", default=10, type=int)
 def start_experiment(
+    reducer, max_iter, gpu_number, targets, dimension, rank, layer, batch_size
+):
+    # convert targets string to list
+    target_classes = json.loads(targets)
+    rank = json.loads(rank)
+    loaders, classes_names, model = prepare_data(
+        str(gpu_number), target_classes, batch_size
+    )
+    exp, wm = train_explainer(
+        model,
+        batch_size,
+        target_classes,
+        classes_names,
+        layer,
+        rank,
+        loaders,
+        max_iter,
+        dimension,
+        reducer,
+    )
+    build_explanation(exp, wm, loaders)
+
+
+def start_experiment_noclick(
     reducer, max_iter, gpu_number, targets, dimension, rank, layer, batch_size
 ):
     # convert targets string to list

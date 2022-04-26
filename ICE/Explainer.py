@@ -15,6 +15,7 @@ import pydotplus
 import numpy as np
 import matplotlib.pyplot as plt
 import time
+import json
 
 
 FONT_SIZE = 30
@@ -41,7 +42,7 @@ class Explainer:
         featuretopk=20,
         featureimgtopk=5,
         epsilon=1e-4,
-        nmf_initialization="nndsvda",
+        nmf_initialization="nndsvd",
         dimension=None,
         iter_max=1000,
     ):
@@ -148,8 +149,9 @@ class Explainer:
             print("loading complete, with size of {}".format(nX_feature.shape))
             start_time = time.time()
             # the NMF is produced from the matrix of two different composers at the same time. Then we'll know if some concepts are in common or not
-            nX = self.reducer.fit_transform(nX_feature)
+            self.reducer.fit_transform(nX_feature)
             # nX contains W in the NMF result (W,H)
+            # import matplotlib.pyplot as plt
 
             print("2/5 Reducer trained, spent {} s.".format(time.time() - start_time))
 
@@ -564,51 +566,51 @@ class Explainer:
             #     x, h, threshold=threshold, background=background, smooth=smooth
             # )
             minmax = False
-            if self.reducer_type == "PCA":
-                minmax = True
-            x, h = self.utils.img_filter(
-                x,
-                h,
-                threshold=threshold,
-                background=background,
-                smooth=smooth,
-                minmax=minmax,
-            )
+            # if self.reducer_type == "PCA":
+            #     minmax = True
+            # x, h = self.utils.img_filter(
+            #     x,
+            #     h,
+            #     threshold=threshold,
+            #     background=background,
+            #     smooth=smooth,
+            #     minmax=minmax,
+            # )
 
-            nsize = self.utils.img_size.copy()
-            nsize[1] = nsize[1] * self.featureimgtopk
-            nimg = np.zeros(nsize)
-            nh = np.zeros(nsize[:-1])
-            for i in range(x.shape[0]):
-                timg = self.utils.deprocessing(
-                    x[i]
-                )  # return same image in a standard format (i.e. channel last) plus some other modifications that seem not active
-                if (
-                    timg.max() < 127
-                ):  # not the best way to distinguish between images and MIDI, but it should work if not very unlucky
-                    timg = timg / 127.0  # THIS was modified to run on MIDI velocity
-                    timg = abs(timg)
-                else:
-                    timg = timg / 255.0  # Original for images
-                    timg = abs(timg)
-                timg = np.clip(timg, 0, 1)  # clip to be sure, it should not do anything
-                nimg[
-                    :, i * self.utils.img_size[1] : (i + 1) * self.utils.img_size[1], :
-                ] = timg
-                nh[
-                    :, i * self.utils.img_size[1] : (i + 1) * self.utils.img_size[1]
-                ] = h[i]
-            # contour the features
-            fig = self.utils.contour_img(nimg, nh)
-            # draw lines between different pianorolls
-            for x_vert in [
-                i * nimg.shape[1] / x.shape[0] for i in range(1, x.shape[0])
-            ]:
-                fig.axes[0].axvline(x_vert, color="black")
-            fig.savefig(
-                feature_path / (str(idx) + ".jpg"), bbox_inches="tight", pad_inches=0
-            )
-            plt.close(fig)
+            # nsize = self.utils.img_size.copy()
+            # nsize[1] = nsize[1] * self.featureimgtopk
+            # nimg = np.zeros(nsize)
+            # nh = np.zeros(nsize[:-1])
+            # for i in range(x.shape[0]):
+            #     timg = self.utils.deprocessing(
+            #         x[i]
+            #     )  # return same image in a standard format (i.e. channel last) plus some other modifications that seem not active
+            #     if (
+            #         timg.max() < 127
+            #     ):  # not the best way to distinguish between images and MIDI, but it should work if not very unlucky
+            #         timg = timg / 127.0  # THIS was modified to run on MIDI velocity
+            #         timg = abs(timg)
+            #     else:
+            #         timg = timg / 255.0  # Original for images
+            #         timg = abs(timg)
+            #     timg = np.clip(timg, 0, 1)  # clip to be sure, it should not do anything
+            #     nimg[
+            #         :, i * self.utils.img_size[1] : (i + 1) * self.utils.img_size[1], :
+            #     ] = timg
+            #     nh[
+            #         :, i * self.utils.img_size[1] : (i + 1) * self.utils.img_size[1]
+            #     ] = h[i]
+            # # contour the features
+            # fig = self.utils.contour_img(nimg, nh)
+            # # draw lines between different pianorolls
+            # for x_vert in [
+            #     i * nimg.shape[1] / x.shape[0] for i in range(1, x.shape[0])
+            # ]:
+            #     fig.axes[0].axvline(x_vert, color="black")
+            # fig.savefig(
+            #     feature_path / (str(idx) + ".jpg"), bbox_inches="tight", pad_inches=0
+            # )
+            # plt.close(fig)
             # create the plotly figure. We recompute x,h because we don't need smoothing
             x, h = features[idx]
             minmax = False
@@ -625,8 +627,13 @@ class Explainer:
                 skip_mask=True,
             )
             plotly_fig = self.utils.plotly_plot(x, h)
-            plotly_fig.write_html("test_plot.html")
             plotly_fig.write_html(feature_path / (str(idx) + "plotly.html"))
+            # save reducer error plot
+            if self.reducer_type == "NTD":
+                error_plot_path = self.exp_location / self.title / "NTD_error.png"
+                plt.plot(self.reducer.reducer_conv)
+                plt.savefig(error_plot_path)
+                plt.close()
 
     def _sonify_features(
         self,
@@ -669,11 +676,11 @@ class Explainer:
                 # save midi for x[i]
                 midifile_filt_path = Path(feature_path, f"feature{idx}-{i}_filt.mid")
                 try:
-                    self.utils.pianoroll2midi(
-                        np.transpose(x_filt[i], (0, 2, 1)),
-                        midifile_filt_path,
-                        channels=1,
-                    )
+                    # self.utils.pianoroll2midi(
+                    #     np.transpose(x_filt[i], (0, 2, 1)),
+                    #     midifile_filt_path,
+                    #     channels=1,
+                    # )
                     if unfiltered_midi:
                         midifile_path = Path(feature_path, f"feature{idx}-{i}.mid")
                         self.utils.pianoroll2midi(
@@ -684,76 +691,109 @@ class Explainer:
 
     def global_explanations(self):
         title = self.title
-        fpath = (self.exp_location / self.title / "feature_imgs").absolute()
-        feature_topk = min(self.featuretopk, len(self.cavs))
-        feature_weight = self.test_weight
-        class_names = self.class_names
-        Nos = range(self.class_nos)
-
-        font = self.font
-
-        def LR_graph(wlist, No):
-            def node_string(count, fidx, w, No):
-                nodestr = ""
-                nodestr += '{} [label=< <table border="0">'.format(count)
-
-                nodestr += "<tr>"
-                nodestr += '<td><img src= "{}" /></td>'.format(
-                    str(fpath / ("{}.jpg".format(fidx)))
-                )
-                nodestr += "</tr>"
-
-                # nodestr +="<tr><td><FONT POINT-SIZE=\"{}\"> ClassName: {} </FONT></td></tr>".format(font,classes.No2Name[No])
-                nodestr += '<tr><td><FONT POINT-SIZE="{}"> FeatureRank: {} </FONT></td></tr>'.format(
-                    font, count
-                )
-
-                nodestr += '<tr><td><FONT POINT-SIZE="{}"> Feature: {}, Weight: {:.3f} </FONT></td></tr>'.format(
-                    font, fidx, w
-                )
-
-                nodestr += "</table>  >];\n"
-                return nodestr
-
-            resstr = "digraph Tree {node [shape=box] ;rankdir = LR;\n"
-
-            count = len(wlist)
-            for k, v in wlist:
-                resstr += node_string(count, k, v, No)
-                count -= 1
-
-            resstr += '0 [label=< <table border="0">'
-            resstr += '<tr><td><FONT POINT-SIZE="{}"> ClassName: {} </FONT></td></tr>'.format(
-                font, class_names[No]
-            )
-            resstr += '<tr><td><FONT POINT-SIZE="{}"> Fidelity error: {:.3f} % </FONT></td></tr>'.format(
-                font, self.reducer_err[No] * 100
-            )
-            resstr += '<tr><td><FONT POINT-SIZE="{}"> First {} features out of {} </FONT></td></tr>'.format(
-                font, feature_topk, len(self.cavs)
-            )
-            resstr += "</table>  >];\n"
-
-            resstr += "}"
-
-            return resstr
-
-        if not os.path.exists(self.exp_location / title / "GE"):
-            os.mkdir(self.exp_location / title / "GE")
+        suggested_CAVs = find_contrastive_cavs(self.test_weight, print_sug=False)
+        reducer_conv = (
+            self.reducer.reducer_conv[-1]
+            if self.reducer_type == "NTD"
+            else self.reducer.reducer_conv
+        )
 
         print("Generate explanations with fullset condition")
+        out_json = {
+            "title": self.title,
+            "reducer": self.reducer_type,
+            "dimension": self.dimension,
+            "rank": self.n_components,
+            "fidelity": self.reducer_err.tolist(),
+            "fidelity_avg": float(np.mean(self.reducer_err)),
+            "classes": self.class_names,
+            "concepts_sensitivity": {
+                f"CAV{i}": cav.tolist() for i, cav in enumerate(self.test_weight)
+            },
+            "suggested_CAVs": suggested_CAVs,
+            "reducer_conv": float(reducer_conv),
+        }
+        out_path = self.exp_location / title / "summary.json"
+        with open(out_path, "w") as outfile:
+            json.dump(out_json, outfile)
 
-        for i in Nos:
-            wlist = [
-                (j, feature_weight[j][i])
-                for j in feature_weight[:, i].argsort()[-feature_topk:]
-            ]
-            graph = pydotplus.graph_from_dot_data(LR_graph(wlist, i))
-            graph.write_jpg(
-                str(
-                    self.exp_location / title / "GE" / ("{}.jpg".format(class_names[i]))
-                )
-            )
+        # for i, weight in enumerate(self.test_weight):
+        #     print(f"Weights for CAV{i} (for target classes) : {weight} ")
+        # # find contrastive CAVs and print them
+        # find_contrastive_cavs(self.test_weight)
+
+    # def global_explanations(self):
+    #     title = self.title
+    #     fpath = (self.exp_location / self.title / "feature_imgs").absolute()
+    #     feature_topk = min(self.featuretopk, len(self.cavs))
+    #     feature_weight = self.test_weight
+    #     class_names = self.class_names
+    #     Nos = range(self.class_nos)
+
+    #     font = self.font
+
+    #     def LR_graph(wlist, No):
+    #         def node_string(count, fidx, w, No):
+    #             nodestr = ""
+    #             nodestr += '{} [label=< <table border="0">'.format(count)
+
+    #             nodestr += "<tr>"
+    #             nodestr += '<td><img src= "{}" /></td>'.format(
+    #                 str(fpath / ("{}.jpg".format(fidx)))
+    #             )
+    #             nodestr += "</tr>"
+
+    #             # nodestr +="<tr><td><FONT POINT-SIZE=\"{}\"> ClassName: {} </FONT></td></tr>".format(font,classes.No2Name[No])
+    #             nodestr += '<tr><td><FONT POINT-SIZE="{}"> FeatureRank: {} </FONT></td></tr>'.format(
+    #                 font, count
+    #             )
+
+    #             nodestr += '<tr><td><FONT POINT-SIZE="{}"> Feature: {}, Weight: {:.3f} </FONT></td></tr>'.format(
+    #                 font, fidx, w
+    #             )
+
+    #             nodestr += "</table>  >];\n"
+    #             return nodestr
+
+    #         resstr = "digraph Tree {node [shape=box] ;rankdir = LR;\n"
+
+    #         count = len(wlist)
+    #         for k, v in wlist:
+    #             resstr += node_string(count, k, v, No)
+    #             count -= 1
+
+    #         resstr += '0 [label=< <table border="0">'
+    #         resstr += '<tr><td><FONT POINT-SIZE="{}"> ClassName: {} </FONT></td></tr>'.format(
+    #             font, class_names[No]
+    #         )
+    #         resstr += '<tr><td><FONT POINT-SIZE="{}"> Fidelity error: {:.3f} % </FONT></td></tr>'.format(
+    #             font, self.reducer_err[No] * 100
+    #         )
+    #         resstr += '<tr><td><FONT POINT-SIZE="{}"> First {} features out of {} </FONT></td></tr>'.format(
+    #             font, feature_topk, len(self.cavs)
+    #         )
+    #         resstr += "</table>  >];\n"
+
+    #         resstr += "}"
+
+    #         return resstr
+
+    #     if not os.path.exists(self.exp_location / title / "GE"):
+    #         os.mkdir(self.exp_location / title / "GE")
+
+    #     print("Generate explanations with fullset condition")
+
+    #     for i in Nos:
+    #         wlist = [
+    #             (j, feature_weight[j][i])
+    #             for j in feature_weight[:, i].argsort()[-feature_topk:]
+    #         ]
+    #         graph = pydotplus.graph_from_dot_data(LR_graph(wlist, i))
+    #         graph.write_jpg(
+    #             str(
+    #                 self.exp_location / title / "GE" / ("{}.jpg".format(class_names[i]))
+    #             )
+    #         )
 
     def local_explanations(
         self, x, model, background=0.2, name=None, with_total=True, display_value=True
