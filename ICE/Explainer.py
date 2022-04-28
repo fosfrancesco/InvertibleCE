@@ -183,22 +183,41 @@ class Explainer:
                 reX.append(self.reducer.inverse_transform(t_feature, indices))
 
         err = []
+        prec = []
         for i in range(len(self.class_names)):
-            res_true = model.feature_predict(X_features[i], layer_name=self.layer_name)[
-                :, i
-            ]  # I guess this continue the computation from the layer we stopped to the end with the original input
-            # it also takes only the prediction score for a certain class, with [:,i]
-            res_recon = model.feature_predict(reX[i], layer_name=self.layer_name)[
-                :, i
-            ]  # I guess this continue the computation from the layer we stopped to the end with the reconstructed input from the NMF
-            # it also takes only the prediction score for a certain class, with [:,i]
-            err.append(
-                abs(res_true - res_recon).mean(axis=0)
-                / (abs(res_true.mean(axis=0)) + self.epsilon)
-            )  # compute the mean of how much the prediction scores changes for a certain class and normalize it with the mean of the true result.
-            # why not do that after softmax so you don't need to normalize in this weird way?
+            # WARNING
+            # !!!!!!!! This in the old code is the computation for regression. We need the one for classification
+
+            # res_true = model.feature_predict(X_features[i], layer_name=self.layer_name)[
+            #     :, i
+            # ]  # I guess this continue the computation from the layer we stopped to the end with the original input
+            # # it also takes only the prediction score for a certain class, with [:,i]
+            # res_recon = model.feature_predict(reX[i], layer_name=self.layer_name)[
+            #     :, i
+            # ]  # I guess this continue the computation from the layer we stopped to the end with the reconstructed input from the NMF
+            # # it also takes only the prediction score for a certain class, with [:,i]
+            # err.append(
+            #     abs(res_true - res_recon).mean(axis=0)
+            #     / (abs(res_true.mean(axis=0)) + self.epsilon)
+            # )  # compute the mean of how much the prediction scores changes for a certain class and normalize it with the mean of the true result.
+            # # why not do that after softmax so you don't need to normalize in this weird way?
+
+            # Francesco: this is the new one for classification
+            # find the predicted class for the original activation layer
+            res_true = model.feature_predict(
+                X_features[i], layer_name=self.layer_name
+            ).argmax(axis=1)
+            # find the predicted class for the reconstructed activation layer
+            res_recon = model.feature_predict(
+                reX[i], layer_name=self.layer_name
+            ).argmax(axis=1)
+            # check when it is true and normalize for the number of pieces considered
+            err.append(np.count_nonzero(res_true == res_recon) / len(X_features[i]))
+            # append also how good is the original classifier
+            prec.append(np.cont_nonzero(res_true == i) / len(X_features[i]))
 
         self.reducer_err = np.array(err)
+        self.original_precision = np.array(prec)
         if type(self.reducer_err) is not np.ndarray:
             self.reducer_err = np.array([self.reducer_err])
 
@@ -705,6 +724,7 @@ class Explainer:
             "dimension": self.dimension,
             "rank": self.n_components,
             "fidelity": self.reducer_err.tolist(),
+            "original_precision": self.original_precision.tolist(),
             "fidelity_avg": float(np.mean(self.reducer_err)),
             "classes": self.class_names,
             "concepts_sensitivity": {

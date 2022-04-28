@@ -1,6 +1,6 @@
 from experiments_script import start_experiment_noclick
 
-gpu_number = 2
+gpu_number = 0
 layer = "layer4"
 batch_size = 10
 max_iter = 500
@@ -56,7 +56,8 @@ ntd4_ranks = [
     "[2, 13, 3, 375]",
 ]
 dimensions = [3, 4]
-targets = "[5,6]"
+# targets = "[5,6]"
+targets = "[8,12]"
 
 
 # NMF experiment
