@@ -207,19 +207,19 @@ def build_explanation(exp, wm, loaders):
 
 @click.command()
 @click.option("--reducer", help="Either NMF or NTD", default="NMF", type=str)
-@click.option("--max-iter", default=200, type=int)
+@click.option("--max-iter", default=1000, type=int)
 @click.option("--gpu-number", default=0, type=int)
 @click.option(
     "--targets",
     help="A list of integers (target classes) as string",
-    default="[5,6]",
+    default="[6,9]",
     type=str,
 )
 @click.option(
     "--dimension", help="An integer, considered only for NTD", default=4, type=int
 )
 @click.option(
-    "--rank", help="An integer, or list of integers as string", default="10", type=str,
+    "--rank", help="An integer, or list of integers as string", default="1", type=str,
 )
 @click.option(
     "--layer", help="The name of the target layer", default="layer4", type=str

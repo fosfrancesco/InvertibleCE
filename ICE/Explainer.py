@@ -214,7 +214,7 @@ class Explainer:
             # check when it is true and normalize for the number of pieces considered
             err.append(np.count_nonzero(res_true == res_recon) / len(X_features[i]))
             # append also how good is the original classifier
-            prec.append(np.cont_nonzero(res_true == i) / len(X_features[i]))
+            prec.append(np.count_nonzero(res_true == i) / len(X_features[i]))
 
         self.reducer_err = np.array(err)
         self.original_precision = np.array(prec)
@@ -222,6 +222,7 @@ class Explainer:
             self.reducer_err = np.array([self.reducer_err])
 
         print("3/5 Error estimated, fidelity: {}.".format(self.reducer_err))
+        print(f"Original precision: {self.original_precision}")
 
         return (self.reducer_err,)
 
