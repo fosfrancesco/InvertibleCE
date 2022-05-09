@@ -26,9 +26,9 @@ from pathlib import Path
 import numpy as np
 
 from DeepComposerClassification.resnet import resnet50
-from tcav.tcav_utils import assemble_concept, get_tensor_from_filename
-from DeepComposerClassification.generator import Generator
-from tools.data_loader import MIDIDataset
+# from tcav.tcav_utils import assemble_concept, get_tensor_from_filename
+# from DeepComposerClassification.generator import Generator
+# from tools.data_loader import MIDIDataset
 
 from config import concepts_path, splits_root
 
@@ -36,6 +36,8 @@ import ICE.ModelWrapper
 import ICE.Explainer
 import ICE.utils
 import shutil
+
+from ICE.utils import TARGET_COMPOSERS
 
 concepts_path = os.path.join(concepts_path, "npy")
 
@@ -66,68 +68,57 @@ def prepare_data(gpu_number, target_classes, batch_size):
     model.to(device)
     model.eval()
 
-    train_dataset = MIDIDataset(
-        train=True,  # newly added
-        txt_file=os.path.join(splits_root, "train.txt"),
-        classes=13,
-        omit=None,  # str
-        seg_num=3,
-        age=False,
-        transform=None,
-        transpose_rng=None,
-        pr_channels=1,
-    )
+   
+    # train_dataset = MIDIDataset(
+    #     train=True,  # newly added
+    #     txt_file=os.path.join(splits_root, "train.txt"),
+    #     classes=13,
+    #     omit=None,  # str
+    #     seg_num=3,
+    #     age=False,
+    #     transform=None,
+    #     transpose_rng=None,
+    #     pr_channels=1,
+    # )
     # train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 
     # a solution to have datasets only for a specific class and to return only X instead of the dictionary with X and Y
-    class XSubset(torch.utils.data.Dataset):
-        r"""
-        Subset of a dataset at specified indices.
+    # class XSubset(torch.utils.data.Dataset):
+    #     r"""
+    #     Subset of a dataset at specified indices.
 
-        Args:
-            dataset (Dataset): The whole Dataset
-            indices (sequence): Indices in the whole set selected for subset
-        """
+    #     Args:
+    #         dataset (Dataset): The whole Dataset
+    #         indices (sequence): Indices in the whole set selected for subset
+    #     """
 
-        def __init__(self, dataset, indices):
-            self.dataset = dataset
-            self.indices = indices
+    #     def __init__(self, dataset, indices):
+    #         self.dataset = dataset
+    #         self.indices = indices
 
-        def __getitem__(self, idx):
-            if isinstance(idx, list):
-                return [self.dataset[[self.indices[i] for i in idx]]["X"]]
-            return [self.dataset[self.indices[idx]]["X"]]
+    #     def __getitem__(self, idx):
+    #         if isinstance(idx, list):
+    #             return [self.dataset[[self.indices[i] for i in idx]]["X"]]
+    #         return [self.dataset[self.indices[idx]]["X"]]
 
-        def __len__(self):
-            return len(self.indices)
+    #     def __len__(self):
+    #         return len(self.indices)
 
-    target_composers = [
-        "Alexander Scriabin",
-        "Claude Debussy",
-        "Domenico Scarlatti",
-        "Franz Liszt",
-        "Franz Schubert",
-        "Frédéric Chopin",
-        "Johann Sebastian Bach",
-        "Johannes Brahms",
-        "Joseph Haydn",
-        "Ludwig van Beethoven",
-        "Robert Schumann",
-        "Sergei Rachmaninoff",
-        "Wolfgang Amadeus Mozart",
-    ]
+    
 
     # target_classes = [5, 6]
-    classes_names = [target_composers[i] for i in target_classes]
+    classes_names = [TARGET_COMPOSERS[i] for i in target_classes]
     # n_components = (20, 20, 100)
     # layer_name = "layer4"
     # iter_max = 100
 
-    Y = np.array(train_dataset.y)
     loaders = []
     datasets = []
     for target in target_classes:
-        tdataset = XSubset(train_dataset, np.nonzero(Y == target)[0])
+        tdataset = ICE.utils.AsapPianoRollDataset(
+            composers_idx=[target],
+            seg_num=2
+        )
         datasets.append(tdataset)
         loaders.append(
             torch.utils.data.DataLoader(
@@ -208,7 +199,7 @@ def build_explanation(exp, wm, loaders):
 @click.command()
 @click.option("--reducer", help="Either NMF or NTD", default="NMF", type=str)
 @click.option("--max-iter", default=1000, type=int)
-@click.option("--gpu-number", default=0, type=int)
+@click.option("--gpu-number", default=3, type=int)
 @click.option(
     "--targets",
     help="A list of integers (target classes) as string",

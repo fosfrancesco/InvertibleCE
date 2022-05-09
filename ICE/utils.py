@@ -15,7 +15,10 @@ import tensorly as tl
 import plotly
 import plotly.express as px
 import plotly.graph_objects as go
-
+from torch.utils.data import Dataset, DataLoader
+import pandas as pd
+from pathlib import Path
+import json
 
 mean = [103.939, 116.779, 123.68]
 SIZE = [224, 224]
@@ -425,3 +428,84 @@ def find_contrastive_cavs(list_of_concept_sensitivity, print_sug=True):
             print(f"Promising CAV {ind}")
     return filtered_diff_inds
 
+
+class AsapPianoRollDataset(Dataset):
+    def __init__(
+        self,
+        composers_idx = [],
+        seg_num=2,
+        asap_basepath = Path("/share/cp/projects/concept_composers/asap-dataset"),
+        frame_length = 0.05,
+        piano_range = True,
+        window_len = 400
+    ):
+        assert len(composers_idx)==1
+        self.composers_idx = composers_idx
+        self.composer_names = [TARGET_COMPOSERS[c] for c in composers_idx]
+        self.seg_num = seg_num  # seg num per song
+
+        #get a list of performances such as there are not 2 performances of the same piece
+        df = pd.read_csv(Path(asap_basepath,"metadata.csv"))
+        df = df.drop_duplicates(subset=["title","composer"])
+        df = df[df['composer'].isin(self.composer_names)]
+        self.seg_composers = []
+        self.pianorolls = []
+
+        for midi_path, comp in zip(df["midi_performance"].tolist(), df['composer'].tolist() ):
+            part = partitura.load_performance_midi(Path(asap_basepath,midi_path))
+            part.sustain_pedal_threshold = 127  # discard pedal information
+            pr = partitura.utils.compute_pianoroll(
+                part,
+                time_unit="sec",
+                time_div=int(1 / frame_length),
+                onset_only=False,
+                piano_range=piano_range,
+            ).toarray().T
+            pr = np.expand_dims(pr,0)
+            all_start_idxs = [i for i in range((len(pr.shape[1])-1)//window_len)]
+            random_start = np.random.choice(len(all_start_idxs), size=seg_num, replace=False)
+            self.pianorolls.extend([pr[:,rs:rs+window_len,:] for rs in random_start])
+            self.seg_composers.extend([TARGET_COMPOSERS.index(comp) for _ in random_start])
+
+        
+    def __len__(self):
+        return len(self.seg_composers)
+
+    def __getitem__(self, idx):
+        X = self.pianorolls[idx]
+        Y = self.seg_composers[idx]
+
+        return [X]
+
+
+# TARGET_COMPOSERS = [
+#     "Alexander Scriabin",
+#     "Claude Debussy",
+#     "Domenico Scarlatti",
+#     "Franz Liszt",
+#     "Franz Schubert",
+#     "Frédéric Chopin",
+#     "Johann Sebastian Bach",
+#     "Johannes Brahms",
+#     "Joseph Haydn",
+#     "Ludwig van Beethoven",
+#     "Robert Schumann",
+#     "Sergei Rachmaninoff",
+#     "Wolfgang Amadeus Mozart",
+# ]
+
+TARGET_COMPOSERS = [
+    "Scriabin",
+    "Debussy",
+    "Scarlatti",
+    "Liszt",
+    "Schubert",
+    "Chopin",
+    "Bach",
+    "Brahms",
+    "Haydn",
+    "Beethoven",
+    "Schumann",
+    "Rachmaninoff",
+    "Mozart",
+]
