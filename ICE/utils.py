@@ -344,12 +344,12 @@ class img_utils:
             ana.append(np.array([C1, C2, C, res]))
         return [np.array(ana), reducer]
 
-    def plotly_plot(self, x, h):
+    def plotly_plot(self, x, h, avg, title):
         number_of_steps = 10
         number_of_figures = 5
 
         # Create figure
-        fig = plotly.subplots.make_subplots(number_of_figures, 1)
+        fig = plotly.subplots.make_subplots(number_of_figures, 1, subplot_titles=[f"CAV presence: {a}" for a in avg],vertical_spacing = 0.05)
         for i in range(number_of_figures):
             fig.add_trace(
                 go.Heatmap(z=x[i, 0, :, :].T / x.max(), colorscale="hot_r"), i + 1, 1
@@ -384,7 +384,7 @@ class img_utils:
                 method="update",
                 args=[
                     {"visible": [False] * len(fig.data)},
-                    {"title": "Slider switched to step: " + str(i)},
+                    {"title": title},
                 ],  # layout attribute
             )
             for fi in range(number_of_figures):
@@ -462,8 +462,8 @@ class AsapPianoRollDataset(Dataset):
                 piano_range=piano_range,
             ).toarray().T
             pr = np.expand_dims(pr,0)
-            all_start_idxs = [i for i in range((len(pr.shape[1])-1)//window_len)]
-            random_start = np.random.choice(len(all_start_idxs), size=seg_num, replace=False)
+            all_start_idxs = [s*window_len for s in range((pr.shape[1]-1)//window_len)]
+            random_start = np.random.choice(all_start_idxs, size=seg_num, replace=False)
             self.pianorolls.extend([pr[:,rs:rs+window_len,:] for rs in random_start])
             self.seg_composers.extend([TARGET_COMPOSERS.index(comp) for _ in random_start])
 

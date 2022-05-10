@@ -210,7 +210,7 @@ def build_explanation(exp, wm, loaders):
     "--dimension", help="An integer, considered only for NTD", default=4, type=int
 )
 @click.option(
-    "--rank", help="An integer, or list of integers as string", default="1", type=str,
+    "--rank", help="An integer, or list of integers as string", default="4", type=str,
 )
 @click.option(
     "--layer", help="The name of the target layer", default="layer4", type=str

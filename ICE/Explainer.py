@@ -51,6 +51,7 @@ class Explainer:
         self.class_names = class_names
         self.class_nos = len(class_names) if class_names is not None else 0
         self.X_features = None
+        self.loaders_sizes = None
 
         self.keep_feature_images = keep_feature_images
         self.useMean = useMean
@@ -94,6 +95,8 @@ class Explainer:
     def train_model(self, model, loaders):
         self._train_reducer(model, loaders)
         self._estimate_weight(model, loaders)
+        #save the dimension of the available dataset
+        self.loaders_sizes = [len(dl.dataset) for dl in loaders]
 
     def _train_reducer(self, model, loaders):
 
@@ -185,24 +188,6 @@ class Explainer:
         err = []
         prec = []
         for i in range(len(self.class_names)):
-            # WARNING
-            # !!!!!!!! This in the old code is the computation for regression. We need the one for classification
-
-            # res_true = model.feature_predict(X_features[i], layer_name=self.layer_name)[
-            #     :, i
-            # ]  # I guess this continue the computation from the layer we stopped to the end with the original input
-            # # it also takes only the prediction score for a certain class, with [:,i]
-            # res_recon = model.feature_predict(reX[i], layer_name=self.layer_name)[
-            #     :, i
-            # ]  # I guess this continue the computation from the layer we stopped to the end with the reconstructed input from the NMF
-            # # it also takes only the prediction score for a certain class, with [:,i]
-            # err.append(
-            #     abs(res_true - res_recon).mean(axis=0)
-            #     / (abs(res_true.mean(axis=0)) + self.epsilon)
-            # )  # compute the mean of how much the prediction scores changes for a certain class and normalize it with the mean of the true result.
-            # # why not do that after softmax so you don't need to normalize in this weird way?
-
-            # Francesco: this is the new one for classification
             # find the predicted class for the original activation layer
             res_true = model.feature_predict(
                 X_features[i], layer_name=self.layer_name
@@ -351,12 +336,8 @@ class Explainer:
         features = {}
         features_contrast = {}
         for No in featureIdx:
-            features[No] = [None, None]
-            features_contrast[No] = [None, None]
-        # TODO: what is inter_dict used for?
-        if inter_dict is not None:
-            for k in inter_dict.keys():
-                inter_dict[k] = [[None, None] for No in featureIdx]
+            features[No] = [None, None, None]
+            features_contrast[No] = [None, None, None]
 
         print("loading training data")
         X_features = self.X_features
@@ -381,10 +362,10 @@ class Explainer:
             # iterate for the different CAVs
             for No in featureIdx:
                 # None, None at first call, used to concatenate features for one CAV in different minibatches and different dataloaders
-                samples_top, heatmap_top = features[No]
-                samples_contrast, heatmap_contrast = features_contrast[No]
+                # samples_top, heatmap_top = features[No]
+                # samples_contrast, heatmap_contrast = features_contrast[No]
                 # take the indices of the last 5 vectors (i.e. pieces that activates the CAVs most)
-                idx_most = featureMaps_avg[:, No].argsort()[-imgTopk:]
+                idx_most = featureMaps_avg[:, No].argsort()[::-1][:imgTopk]
                 # take the indices of the first 5 vectors (i.e. pieces that activates the CAVs less)
                 idx_less = featureMaps_avg[:, No].argsort()[:imgTopk]
                 # take only the top/bottom 5 pieces from the full W matrix
@@ -396,19 +377,20 @@ class Explainer:
 
                 # find top/bottom 5 across all minibatches and dataloader
                 # we are losing the about the target class for the samples
-                samples_top, heatmap_top = self._update_feature_dict(
-                    samples_top, heatmap_top, nsamples_most, nheatmap_most
-                )
-                samples_contrast, heatmap_contrast = self._update_feature_dict(
-                    samples_contrast,
-                    heatmap_contrast,
-                    nsamples_less,
-                    nheatmap_less,
-                    keep="lowest",
-                )
-
-                features[No] = [samples_top, heatmap_top]
-                features_contrast[No] = [samples_contrast, heatmap_contrast]
+                # samples_top, heatmap_top = self._update_feature_dict(
+                #     samples_top, heatmap_top, nsamples_most, nheatmap_most
+                # )
+                # samples_contrast, heatmap_contrast = self._update_feature_dict(
+                #     samples_contrast,
+                #     heatmap_contrast,
+                #     nsamples_less,
+                #     nheatmap_less,
+                #     keep="lowest",
+                # )
+                # features[No] = [samples_top, heatmap_top]
+                # features_contrast[No] = [samples_contrast, heatmap_contrast]
+                features[No] = [nsamples_most, nheatmap_most, featureMaps_avg[idx_most,No] ]
+                features_contrast[No] = [nsamples_less, nheatmap_less, featureMaps_avg[idx_less,No]]
 
             print(
                 "Done with class: {}, {}/{}".format(
@@ -417,7 +399,7 @@ class Explainer:
             )
         # create repeat prototypes in case lack of samples
         # TODO : check what is that. It does not seems to enter here
-        for no, (x, h) in features.items():
+        for no, (x, h, avg) in features.items():
             idx = h.mean(axis=(1, 2)).argmax()
             for i in range(h.shape[0]):
                 if h[i].max() == 0:
@@ -581,11 +563,11 @@ class Explainer:
         for idx in features.keys():
 
             # get samples and heatmaps
-            x, h = features[idx]
+            # x, h, avg = features[idx]
             # x = self.gen_masked_imgs(
             #     x, h, threshold=threshold, background=background, smooth=smooth
             # )
-            minmax = False
+            # minmax = False
             # if self.reducer_type == "PCA":
             #     minmax = True
             # x, h = self.utils.img_filter(
@@ -632,7 +614,7 @@ class Explainer:
             # )
             # plt.close(fig)
             # create the plotly figure. We recompute x,h because we don't need smoothing
-            x, h = features[idx]
+            x, h, avg = features[idx]
             minmax = False
             if self.reducer_type == "PCA":
                 minmax = True
@@ -646,7 +628,10 @@ class Explainer:
                 skip_norm=True,
                 skip_mask=True,
             )
-            plotly_fig = self.utils.plotly_plot(x, h)
+            title = f"Explanation for CAV{idx} - {self.class_names[0]}: {self.test_weight[idx][0]} , {self.class_names[1]}: {self.test_weight[idx][1]}"
+            if contrast:
+                title = "Contrastive " + title
+            plotly_fig = self.utils.plotly_plot(x, h, avg, title)
             plotly_fig.write_html(feature_path / (str(idx) + "plotly.html"))
             # save reducer error plot
             if self.reducer_type == "NTD":
@@ -676,7 +661,7 @@ class Explainer:
 
         # iterate over features
         for idx in features.keys():
-            x, h = features[idx]
+            x, h, avg = features[idx]
             # x contains the MIDI for 6 different MIDI files
             minmax = False
             if self.reducer_type == "PCA":
@@ -733,6 +718,8 @@ class Explainer:
             },
             "suggested_CAVs": suggested_CAVs,
             "reducer_conv": float(reducer_conv),
+            "dataset_size" : int(len(np.concatenate(self.X_features))),
+            "loaders_size" : list(self.loaders_sizes),
         }
         out_path = self.exp_location / title / "summary.json"
         with open(out_path, "w") as outfile:
@@ -816,135 +803,135 @@ class Explainer:
     #             )
     #         )
 
-    def local_explanations(
-        self, x, model, background=0.2, name=None, with_total=True, display_value=True
-    ):
-        utils = self.utils
-        font = self.font
-        featuretopk = min(self.featuretopk, len(self.cavs))
+    # def local_explanations(
+    #     self, x, model, background=0.2, name=None, with_total=True, display_value=True
+    # ):
+    #     utils = self.utils
+    #     font = self.font
+    #     featuretopk = min(self.featuretopk, len(self.cavs))
 
-        target_classes = list(range(self.class_nos))
-        w = self.test_weight
-        # get the unnormalized probability over the output classes
-        pred = model.predict(x)[0][target_classes]
-        print("Unnormalized prediction probabilities for the current example:", pred)
+    #     target_classes = list(range(self.class_nos))
+    #     w = self.test_weight
+    #     # get the unnormalized probability over the output classes
+    #     pred = model.predict(x)[0][target_classes]
+    #     print("Unnormalized prediction probabilities for the current example:", pred)
 
-        fpath = self.exp_location / self.title / "explanations"
+    #     fpath = self.exp_location / self.title / "explanations"
 
-        if not os.path.exists(fpath):
-            os.mkdir(fpath)
+    #     if not os.path.exists(fpath):
+    #         os.mkdir(fpath)
 
-        afpath = fpath / "all"
+    #     afpath = fpath / "all"
 
-        if not os.path.exists(afpath):
-            os.mkdir(afpath)
+    #     if not os.path.exists(afpath):
+    #         os.mkdir(afpath)
 
-        if name is not None:
-            fpath = fpath / name
-            if not os.path.exists(fpath):
-                os.mkdir(fpath)
-            else:
-                print("Folder exists, deleting its content")
-                for file in Path(fpath).iterdir():
-                    file.unlink()
-        else:  # if no name is provided, just create a new folder
-            count = 0
-            while os.path.exists(fpath / str(count)):
-                count += 1
-            fpath = fpath / str(count)
-            os.mkdir(fpath)
-            name = str(count)
+    #     if name is not None:
+    #         fpath = fpath / name
+    #         if not os.path.exists(fpath):
+    #             os.mkdir(fpath)
+    #         else:
+    #             print("Folder exists, deleting its content")
+    #             for file in Path(fpath).iterdir():
+    #                 file.unlink()
+    #     else:  # if no name is provided, just create a new folder
+    #         count = 0
+    #         while os.path.exists(fpath / str(count)):
+    #             count += 1
+    #         fpath = fpath / str(count)
+    #         os.mkdir(fpath)
+    #         name = str(count)
 
-        if self.reducer is not None:
-            # produce the feature map for the input
-            h = self.reducer.transform(model.get_feature(x, self.layer_name))[0]
-        else:
-            h = model.get_feature(x, self.layer_name)[0]
+    #     if self.reducer is not None:
+    #         # produce the feature map for the input
+    #         h = self.reducer.transform(model.get_feature(x, self.layer_name))[0]
+    #     else:
+    #         h = model.get_feature(x, self.layer_name)[0]
 
-        # this next part is only useful if featuretopk was limited
-        feature_idx = []
-        for cidx in target_classes:
-            tw = w[:, cidx]
-            tw_idx = tw.argsort()[::-1][:featuretopk]
-            feature_idx.append(tw_idx)
-        feature_idx = list(set(np.concatenate(feature_idx).tolist()))
+    #     # this next part is only useful if featuretopk was limited
+    #     feature_idx = []
+    #     for cidx in target_classes:
+    #         tw = w[:, cidx]
+    #         tw_idx = tw.argsort()[::-1][:featuretopk]
+    #         feature_idx.append(tw_idx)
+    #     feature_idx = list(set(np.concatenate(feature_idx).tolist()))
 
-        for k in feature_idx:
+    #     for k in feature_idx:
 
-            minmax = False
-            if self.reducer_type == "PCA":
-                minmax = True
+    #         minmax = False
+    #         if self.reducer_type == "PCA":
+    #             minmax = True
 
-            # highlight the part of the image according to the CAV k
-            x1, h1 = utils.img_filter(
-                x,
-                np.array([h[:, :, k]]),
-                background=background,
-                minmax=minmax,
-                smooth=True,
-            )
-            # transpose to channel as last dimension
-            x1 = utils.deprocessing(x1)
-            x1 = x1 / x1.max()  # normalize
-            x1 = abs(x1)  # this should do nothing
-            fig = utils.contour_img(x1[0], h1[0])
-            fig.savefig(fpath / ("feature_{}.jpg".format(k)))
-            plt.close()
+    #         # highlight the part of the image according to the CAV k
+    #         x1, h1 = utils.img_filter(
+    #             x,
+    #             np.array([h[:, :, k]]),
+    #             background=background,
+    #             minmax=minmax,
+    #             smooth=True,
+    #         )
+    #         # transpose to channel as last dimension
+    #         x1 = utils.deprocessing(x1)
+    #         x1 = x1 / x1.max()  # normalize
+    #         x1 = abs(x1)  # this should do nothing
+    #         fig = utils.contour_img(x1[0], h1[0])
+    #         fig.savefig(fpath / ("feature_{}.jpg".format(k)))
+    #         plt.close()
 
-        fpath = fpath.absolute()
-        # path of the already produced images of midis max activating cavs
-        gpath = self.exp_location.absolute() / self.title / "feature_imgs"
+    #     fpath = fpath.absolute()
+    #     # path of the already produced images of midis max activating cavs
+    #     gpath = self.exp_location.absolute() / self.title / "feature_imgs"
 
-        def node_string(fidx, score, weight):
+    #     def node_string(fidx, score, weight):
 
-            nodestr = ""
-            nodestr += '<table border="0">\n'
-            nodestr += "<tr>"
-            nodestr += '<td><img src= "{}" /></td>'.format(
-                str(fpath / ("feature_{}.jpg".format(fidx)))
-            )
-            nodestr += '<td><img src= "{}" /></td>'.format(
-                str(gpath / ("{}.jpg".format(fidx)))
-            )
-            nodestr += "</tr>\n"
-            if display_value:
-                nodestr += '<tr><td colspan="2"><FONT POINT-SIZE="{}"> ClassName: {}, Feature: {}</FONT></td></tr>\n'.format(
-                    font, self.class_names[cidx], fidx
-                )
-                nodestr += '<tr><td colspan="2"><FONT POINT-SIZE="{}"> Similarity: {:.3f}, Weight: {:.3f}, Contribution: {:.3f}</FONT></td></tr> \n'.format(
-                    font, score, weight, score * weight
-                )
-            nodestr += "</table>  \n"
-            return nodestr
+    #         nodestr = ""
+    #         nodestr += '<table border="0">\n'
+    #         nodestr += "<tr>"
+    #         nodestr += '<td><img src= "{}" /></td>'.format(
+    #             str(fpath / ("feature_{}.jpg".format(fidx)))
+    #         )
+    #         nodestr += '<td><img src= "{}" /></td>'.format(
+    #             str(gpath / ("{}.jpg".format(fidx)))
+    #         )
+    #         nodestr += "</tr>\n"
+    #         if display_value:
+    #             nodestr += '<tr><td colspan="2"><FONT POINT-SIZE="{}"> ClassName: {}, Feature: {}</FONT></td></tr>\n'.format(
+    #                 font, self.class_names[cidx], fidx
+    #             )
+    #             nodestr += '<tr><td colspan="2"><FONT POINT-SIZE="{}"> Similarity: {:.3f}, Weight: {:.3f}, Contribution: {:.3f}</FONT></td></tr> \n'.format(
+    #                 font, score, weight, score * weight
+    #             )
+    #         nodestr += "</table>  \n"
+    #         return nodestr
 
-        # average values to find out how much a certain feature is activated in the example
-        s = h.mean(axis=(0, 1))
-        for cidx in target_classes:
-            tw = w[:, cidx]
-            tw_idx = tw.argsort()[::-1][:featuretopk]
+    #     # average values to find out how much a certain feature is activated in the example
+    #     s = h.mean(axis=(0, 1))
+    #     for cidx in target_classes:
+    #         tw = w[:, cidx]
+    #         tw_idx = tw.argsort()[::-1][:featuretopk]
 
-            total = 0
+    #         total = 0
 
-            resstr = "digraph Tree {node [shape=plaintext] ;\n"
-            resstr += '1 [label=< \n<table border="0"> \n'
-            for fidx in tw_idx:
-                resstr += "<tr><td>\n"
+    #         resstr = "digraph Tree {node [shape=plaintext] ;\n"
+    #         resstr += '1 [label=< \n<table border="0"> \n'
+    #         for fidx in tw_idx:
+    #             resstr += "<tr><td>\n"
 
-                resstr += node_string(fidx, s[fidx], tw[fidx])
-                total += s[fidx] * tw[fidx]
+    #             resstr += node_string(fidx, s[fidx], tw[fidx])
+    #             total += s[fidx] * tw[fidx]
 
-                resstr += "</td></tr>\n"
+    #             resstr += "</td></tr>\n"
 
-            if with_total:
-                resstr += '<tr><td><FONT POINT-SIZE="{}"> Total Contribution: {:.3f}, Prediction: {:.3f}</FONT></td></tr> \n'.format(
-                    font, total, pred[cidx]
-                )
-            resstr += "</table> \n >];\n"
-            resstr += "}"
+    #         if with_total:
+    #             resstr += '<tr><td><FONT POINT-SIZE="{}"> Total Contribution: {:.3f}, Prediction: {:.3f}</FONT></td></tr> \n'.format(
+    #                 font, total, pred[cidx]
+    #             )
+    #         resstr += "</table> \n >];\n"
+    #         resstr += "}"
 
-            graph = pydotplus.graph_from_dot_data(resstr)
-            # why saving in 2 places?
+    #         graph = pydotplus.graph_from_dot_data(resstr)
+    #         # why saving in 2 places?
 
-            graph.write_jpg(str(fpath / ("explanation_{}.jpg".format(cidx))))
-            # graph.write_jpg(str(afpath / ("{}_{}.jpg".format(name, cidx))))
+    #         graph.write_jpg(str(fpath / ("explanation_{}.jpg".format(cidx))))
+    #         # graph.write_jpg(str(afpath / ("{}_{}.jpg".format(name, cidx))))
 
