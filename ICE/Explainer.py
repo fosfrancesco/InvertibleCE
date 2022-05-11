@@ -275,30 +275,32 @@ class Explainer:
             res = -abs(res - threshold)
         return res
 
-    def _update_feature_dict(self, x, h, nx, nh, threshold=None, keep="highest"):
+    def _update_feature_dict(self, x, h, fm, nx, nh, nfm, threshold=None, keep="highest"):
         """Concatenate x with nx and h with nh, order them 
         wrt the average for each piece and take the 5 with highest (or lowest) value.
         Or just return nx, nh if x (and h) is None"""
 
         if type(x) == type(None):
-            return nx, nh
+            return nx, nh, nfm
         else:
             x = np.concatenate([x, nx])
             h = np.concatenate([h, nh])
+            fm = np.concatenate([fm, nfm])
 
             if keep == "highest":
-                nidx = self._feature_filter(h, threshold=threshold).argsort()[
-                    -self.featureimgtopk :
+                nidx = fm.argsort()[::-1][
+                    :self.featureimgtopk
                 ]
             elif keep == "lowest":
-                nidx = self._feature_filter(h, threshold=threshold).argsort()[
+                nidx = fm.argsort()[
                     : self.featureimgtopk
                 ]
             else:
                 raise ValueError("keep can be only 'highest' or 'lowest'")
             x = x[nidx, ...]
             h = h[nidx, ...]
-            return x, h
+            fm = fm[nidx]
+            return x, h, fm
 
     def _visualize_features(self, model, loaders, featureIdx=None, inter_dict=None):
         # this seems to just clip featuretopk at 20, if ever the number of components (i.e. number of features, i.e., number of cavs) is higher
@@ -362,8 +364,8 @@ class Explainer:
             # iterate for the different CAVs
             for No in featureIdx:
                 # None, None at first call, used to concatenate features for one CAV in different minibatches and different dataloaders
-                # samples_top, heatmap_top = features[No]
-                # samples_contrast, heatmap_contrast = features_contrast[No]
+                samples_top, heatmap_top, fm_top = features[No]
+                samples_contrast, heatmap_contrast, fm_contrast = features_contrast[No]
                 # take the indices of the last 5 vectors (i.e. pieces that activates the CAVs most)
                 idx_most = featureMaps_avg[:, No].argsort()[::-1][:imgTopk]
                 # take the indices of the first 5 vectors (i.e. pieces that activates the CAVs less)
@@ -375,28 +377,31 @@ class Explainer:
                 nsamples_most = comp_pieces[idx_most, ...]
                 nsamples_less = comp_pieces[idx_less, ...]
 
-                # find top/bottom 5 across all minibatches and dataloader
-                # we are losing the about the target class for the samples
-                # samples_top, heatmap_top = self._update_feature_dict(
-                #     samples_top, heatmap_top, nsamples_most, nheatmap_most
-                # )
-                # samples_contrast, heatmap_contrast = self._update_feature_dict(
-                #     samples_contrast,
-                #     heatmap_contrast,
-                #     nsamples_less,
-                #     nheatmap_less,
-                #     keep="lowest",
-                # )
-                # features[No] = [samples_top, heatmap_top]
-                # features_contrast[No] = [samples_contrast, heatmap_contrast]
-                features[No] = [nsamples_most, nheatmap_most, featureMaps_avg[idx_most,No] ]
-                features_contrast[No] = [nsamples_less, nheatmap_less, featureMaps_avg[idx_less,No]]
+                # find top/bottom 5 across all composer classes
+                samples_top, heatmap_top, fm_top = self._update_feature_dict(
+                    samples_top, heatmap_top, fm_top,  nsamples_most, nheatmap_most, featureMaps_avg[idx_most,No]
+                )
+                samples_contrast, heatmap_contrast, fm_contrast = self._update_feature_dict(
+                    samples_contrast,
+                    heatmap_contrast,
+                    fm_contrast
+                    nsamples_less,
+                    nheatmap_less,
+                    featureMaps_avg[idx_less,No],
+                    keep="lowest",
+                )
+                features[No] = [samples_top, heatmap_top, fm_top]
+                features_contrast[No] = [samples_contrast, heatmap_contrast, fm_contrast]
+                # features[No].append([nsamples_most, nheatmap_most, featureMaps_avg[idx_most,No] ])
+                # features_contrast[No].append([nsamples_less, nheatmap_less, featureMaps_avg[idx_less,No]])
 
             print(
                 "Done with class: {}, {}/{}".format(
                     self.class_names[i], i + 1, len(loaders)
                 )
             )
+
+
         # create repeat prototypes in case lack of samples
         # TODO : check what is that. It does not seems to enter here
         for no, (x, h, avg) in features.items():
