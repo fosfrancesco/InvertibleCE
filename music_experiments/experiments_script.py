@@ -1,5 +1,6 @@
 import sys
 
+### To modify to point at the location of the Composer Classification system
 sys.path.append("..")
 sys.path.append("/share/home/francesco/concept_composers/DeepComposerClassification/")
 sys.path.append("/share/home/francesco/concept_composers/")
