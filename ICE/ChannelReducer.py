@@ -249,6 +249,7 @@ class ChannelTensorDecompositionReducer(object):
         acts_flat = self._flat_transpose_pad(acts)
         # now run tucker decomposition
         print("Running tucker on the matrix of shape", acts_flat.shape)
+        print(f"Tucker ranks: {self.rank}")
         tensors, error = non_negative_tucker_hals(
             acts_flat, rank=self.rank, n_iter_max=self._iter_max, return_errors=True
         )

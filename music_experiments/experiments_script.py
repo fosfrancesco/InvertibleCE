@@ -42,7 +42,20 @@ from ICE.utils import TARGET_COMPOSERS
 concepts_path = os.path.join(concepts_path, "npy")
 
 
-def prepare_data(gpu_number, target_classes, batch_size):
+def prepare_data(gpu_number, target_classes, batch_size, layer, rank):
+
+    classes_names = [TARGET_COMPOSERS[i] for i in target_classes]
+    title = (
+        "{}_r{}[".format(layer, rank)
+        + "_".join(classes_names)
+        + "]"
+    )
+    # delete old files
+    if Path("Explainers/" + title).exists():
+        # shutil.rmtree("Explainers/" + title)
+        raise Exception("Already computing for", title)
+    else:
+        Path("Explainers/" + title).mkdir()
 
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
     os.environ["CUDA_VISIBLE_DEVICES"] = gpu_number
@@ -107,7 +120,7 @@ def prepare_data(gpu_number, target_classes, batch_size):
     
 
     # target_classes = [5, 6]
-    classes_names = [TARGET_COMPOSERS[i] for i in target_classes]
+    
     # n_components = (20, 20, 100)
     # layer_name = "layer4"
     # iter_max = 100
@@ -125,7 +138,7 @@ def prepare_data(gpu_number, target_classes, batch_size):
                 tdataset, batch_size=batch_size, shuffle=False, num_workers=2
             )
         )
-    return (loaders, classes_names, model)
+    return (loaders, classes_names, model, title)
 
 
 def train_explainer(
@@ -139,6 +152,7 @@ def train_explainer(
     iter_max,
     dimension,
     reducer,
+    title,
 ):
 
     wm = ICE.ModelWrapper.PytorchModelWrapper(
@@ -150,21 +164,12 @@ def train_explainer(
         model_channel_first=True,
     )
 
-    title = (
-        "ConcComp_{}_{}[".format(layer_name, n_components)
-        + "_".join(classes_names)
-        + "]"
-    )
-
     print("title:{}".format(title))
     print("target_classes:{}".format(target_classes))
     print("classes_names:{}".format(classes_names))
     print("n_components:{}".format(n_components))
     print("layer_name:{}".format(layer_name))
 
-    # delete old files
-    if Path("Explainers/" + title).exists():
-        shutil.rmtree("Explainers/" + title)
     # create an Explainer
     exp = ICE.Explainer.Explainer(
         title=title,
@@ -197,20 +202,20 @@ def build_explanation(exp, wm, loaders):
 
 
 @click.command()
-@click.option("--reducer", help="Either NMF or NTD", default="NMF", type=str)
+@click.option("--reducer", help="Either NMF or NTD", default="NTD", type=str)
 @click.option("--max-iter", default=1000, type=int)
-@click.option("--gpu-number", default=3, type=int)
+@click.option("--gpu-number", default=0, type=int)
 @click.option(
     "--targets",
     help="A list of integers (target classes) as string",
-    default="[6,9]",
+    default="[9,11]",
     type=str,
 )
 @click.option(
     "--dimension", help="An integer, considered only for NTD", default=4, type=int
 )
 @click.option(
-    "--rank", help="An integer, or list of integers as string", default="4", type=str,
+    "--rank", help="An integer, or list of integers as string", default="[6, 13, 3, 375]", type=str,
 )
 @click.option(
     "--layer", help="The name of the target layer", default="layer4", type=str
@@ -222,8 +227,9 @@ def start_experiment(
     # convert targets string to list
     target_classes = json.loads(targets)
     rank = json.loads(rank)
-    loaders, classes_names, model = prepare_data(
-        str(gpu_number), target_classes, batch_size
+
+    loaders, classes_names, model, title = prepare_data(
+        str(gpu_number), target_classes, batch_size, layer, rank
     )
     exp, wm = train_explainer(
         model,
@@ -236,6 +242,7 @@ def start_experiment(
         max_iter,
         dimension,
         reducer,
+        title
     )
     build_explanation(exp, wm, loaders)
 
@@ -243,11 +250,13 @@ def start_experiment(
 def start_experiment_noclick(
     reducer, max_iter, gpu_number, targets, dimension, rank, layer, batch_size
 ):
+
     # convert targets string to list
     target_classes = json.loads(targets)
-    rank = json.loads(rank)
-    loaders, classes_names, model = prepare_data(
-        str(gpu_number), target_classes, batch_size
+    rank = json.loads(rank)    
+    
+    loaders, classes_names, model, title = prepare_data(
+        str(gpu_number), target_classes, batch_size, layer, rank
     )
     exp, wm = train_explainer(
         model,
@@ -260,6 +269,7 @@ def start_experiment_noclick(
         max_iter,
         dimension,
         reducer,
+        title,
     )
     build_explanation(exp, wm, loaders)
 

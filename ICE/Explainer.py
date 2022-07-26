@@ -116,7 +116,6 @@ class Explainer:
                     # nndsvd better fpr sparsity
                     init=self.nmf_initialization,
                 )
-                print("Running NMF with initialization", self.nmf_initialization)
             elif (
                 ChannelReducer.ALGORITHM_NAMES[self.reducer_type] == "3d_decomposition"
             ):
@@ -384,7 +383,7 @@ class Explainer:
                 samples_contrast, heatmap_contrast, fm_contrast = self._update_feature_dict(
                     samples_contrast,
                     heatmap_contrast,
-                    fm_contrast
+                    fm_contrast,
                     nsamples_less,
                     nheatmap_less,
                     featureMaps_avg[idx_less,No],

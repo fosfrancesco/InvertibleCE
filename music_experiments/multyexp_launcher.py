@@ -1,6 +1,7 @@
 from experiments_script import start_experiment_noclick
+import numpy as np
 
-gpu_number = 0
+gpu_number = 1
 layer = "layer4"
 batch_size = 10
 max_iter = 500

@@ -4,7 +4,8 @@ data
 *.pickle
 temp*
 __pycache__
-Explainers
+Explainers/layer*
+supplementary_material
 Explainers_old_fid
 Samples
 .vscode

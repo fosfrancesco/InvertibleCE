@@ -344,12 +344,13 @@ class img_utils:
             ana.append(np.array([C1, C2, C, res]))
         return [np.array(ana), reducer]
 
+
     def plotly_plot(self, x, h, avg, title):
         number_of_steps = 10
         number_of_figures = 5
 
         # Create figure
-        fig = plotly.subplots.make_subplots(number_of_figures, 1, subplot_titles=[f"CAV presence: {a}" for a in avg],vertical_spacing = 0.05)
+        fig = plotly.subplots.make_subplots(number_of_figures, 1, subplot_titles=[f"average concept presence: {a:.2f}" for a in avg],vertical_spacing = 0.03)
         for i in range(number_of_figures):
             fig.add_trace(
                 go.Heatmap(z=x[i, 0, :, :].T / x.max(), colorscale="hot_r"), i + 1, 1
@@ -382,6 +383,7 @@ class img_utils:
         for i in range(number_of_steps):
             step = dict(
                 method="update",
+                label=f"{int(i)*10}%",
                 args=[
                     {"visible": [False] * len(fig.data)},
                     {"title": title},
